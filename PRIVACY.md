@@ -5,9 +5,10 @@ configure yourself**. The author of the app operates no server, receives no data
 
 ## What the app reads
 
-Only what you grant in Health Connect. The app asks for read access to every record type Health Connect supports, which includes
-sensitive categories (for example sleep, heart rate, blood pressure, weight, menstruation, sexual activity, nutrition), plus read access to
-history older than 30 days and to data in the background. You can decline or revoke any of them in Health Connect at any time.
+Only what you choose in the app and grant in Health Connect. The app groups Health Connect's record types into seven categories (activity, heart and vitals,
+body measurements, sleep and mindfulness, nutrition and hydration, cycle tracking, sexual activity); the two sensitive ones - cycle tracking and sexual activity -
+are off until you turn them on. The app requests and reads only the chosen categories, plus read access to history older than 30 days and to data in the
+background. You can change the choice at any time and revoke any permission in Health Connect.
 Each record is sent with its Health Connect metadata (record id, time stamps, the package name of the app that wrote it, device manufacturer and model).
 
 ## Where the data goes
@@ -25,7 +26,7 @@ of your health records. Android backup is disabled for the app.
 
 ## Your control
 
-* Stop synchronisation by revoking the permissions in Health Connect, or by uninstalling the app (this also deletes its local data).
+* Stop synchronisation by turning categories off, signing out in the app (removes the sign-in from the phone and stops background sync), revoking the permissions in Health Connect, or uninstalling the app (this also deletes its local data).
 * Data already uploaded lives on your server; delete it there.
 * The app has no accounts and no profile; it does not identify you to the author.
 

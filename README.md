@@ -37,7 +37,8 @@ Health Connect ──read──▶ Health Connect Gate ──HTTPS──▶ your
    browser and receives the code on a one-shot loopback listener (`http://127.0.0.1:<random port>/callback`), then exchanges
    it for an access and a refresh token. The `state` value is checked. Expired access tokens are refreshed once
    automatically.
-3. **Grant access** – the app asks Health Connect for read permission for every supported record type, plus
+3. **Choose and grant** – you choose which categories of data are synchronized (seven of them; the sensitive ones, *cycle tracking* and
+   *sexual activity*, are off until you turn them on). The app asks Health Connect only for the chosen types, plus
    `READ_HEALTH_DATA_HISTORY` (without it Health Connect only returns the 30 days before the first grant) and
    `READ_HEALTH_DATA_IN_BACKGROUND` (for the hourly background sync).
 4. **Sync** – manually ("Sync all data", runs as a foreground service of type *health*) or hourly through WorkManager.
@@ -46,6 +47,10 @@ Health Connect ──read──▶ Health Connect Gate ──HTTPS──▶ your
    of truth, so an interrupted or repeated sync is safe.
 5. **Diagnostics** – phases, errors and stack traces are kept in a local outbox and uploaded to the gateway.
    Health records and credentials never enter diagnostics (tokens are redacted).
+
+The main screen shows the server and sign-in state, whether a sync is running, the last success, the last problem in plain language, the next
+background run and how many of the chosen types are allowed. **Sign out** removes the tokens and the resumable state from the phone and stops the
+background sync (a session that was already issued stays valid on the server until it expires).
 
 Only one synchronisation runs at a time (file lock shared by the service and the worker).
 
@@ -80,7 +85,12 @@ Any server that implements the following can be used with the app. All bodies ar
 { "history_start": "2026-01-01T00:00:00Z", "history_end": "2026-09-20T12:00:00Z", "chunk_months": 1, "batch_size": 250 }
 ```
 
-`history_start` (ISO-8601, required) is the beginning of the window to read. `history_end` is optional (the app uses "now" when it is
+```json
+{ "history_start": "2026-01-01T00:00:00Z", "chunk_months": 1, "batch_size": 250, "accepts_gzip": true, "record_format": 2 }
+```
+
+`accepts_gzip` and `record_format` are **optional capabilities** (see [Upload](#upload--post-apihealthsync)): a server that does not send them is
+treated as "no gzip, record format 1". `history_start` (ISO-8601, required) is the beginning of the window to read. `history_end` is optional (the app uses "now" when it is
 absent) but, if present, must be later than `history_start` – otherwise the app refuses to sync. `chunk_months` (1–12) is how many months make up one chunk and `batch_size`
 (25–500) how many records go into one upload; the app clamps out-of-range values.
 
@@ -108,6 +118,15 @@ newest 200 chunk ids.
 ```
 
 * `kind` is the Health Connect record class without the `Record` suffix; `data` holds the record's fields.
+* **Compression.** If the config says `"accepts_gzip": true`, the app compresses upload bodies larger than 1 KiB and sends `Content-Encoding: gzip`.
+  A server that advertises it must decompress (with a limit on the expanded size - the reference receiver refuses more than 64 MB) and answer `415` to encodings it
+  does not know. Without the flag the app always sends plain JSON.
+* **Record format.** With `"record_format": 2` in the config the envelope carries `"record_format": 2` and the app writes the record types the reference
+  receiver models (steps, distance, active and total calories, heart rate, speed, sleep, exercise, basal metabolic rate, weight, height, blood pressure, resting
+  heart rate) in *canonical units only*: `meters`, `kilocalories`, `kilocaloriesPerDay`, `kilograms`, `metersPerSecond`, `millimetersOfMercury`. The unit conversions
+  Health Connect adds (feet, inches, miles, joules, pounds, ...), the null `*$annotations` fields, `metadata.id` (it is the top-level `id`) and an `endZoneOffset` equal
+  to `startZoneOffset` are left out; everything else is unchanged. All other record types, and every record when the server does not announce format 2, are sent in
+  format 1 (all fields, including the conversions).
 * **Be idempotent.** Records are re-sent after interrupted syncs: de-duplicate on `id` and answer normally.
   A successful answer is HTTP 2xx with a JSON object; a body such as
   `{"schema_version": 1, "ok": true, "accepted": 7, "duplicates": 1, "received": 8, "total": 4321, "chunk_id": "…"}` is what the
@@ -260,8 +279,10 @@ curl -si https://gateway.example.com/api/health/sync/status        # HTTP 401 wi
 
 ## Permissions and privacy
 
-* Health Connect **read** permissions for all record types the SDK supports, plus history and background read.
-  This includes sensitive categories; the app requests everything by design. Revoke what you do not want to sync.
+* Health Connect **read** permissions only for the categories you choose (activity, heart and vitals, body measurements, sleep and mindfulness, nutrition and hydration,
+  cycle tracking, sexual activity), plus history and background read. The two sensitive categories are off by default. All permissions are *declared* in the
+  manifest, since Android only lets an app request what it declares, but only the chosen ones are requested. To withdraw a permission completely use the
+  Health Connect settings (the app has a button for it).
 * `INTERNET`, and foreground-service permissions for the health sync service.
 * `POST_NOTIFICATIONS` is declared but never requested; enable it in system settings if you want progress notifications.
 * Data goes only to the domain you enter, over HTTPS (plain HTTP is never used). No analytics, advertising or
@@ -312,7 +333,8 @@ repository (`GATE_PRIVATE_PATTERNS`).
 
 * Server tests (standard library only): `cd server && python3 -m unittest discover -s tests` and
   `python3 tests/smoke_write.py` (end-to-end with a stub auth backend; run it again with `HEALTH_RECEIVER_STORE=sqlite`).
-* App: `./gradlew :app:assembleDebug`. There are no app unit tests yet.
+* App: `./gradlew :app:testDebugUnitTest` (JVM tests: data categories, permissions vs manifest, error texts, explicit serialisation against the reflective
+  encoder on real Health Connect objects) and `./gradlew :app:assembleDebug`.
 
 ## License
 
@@ -338,8 +360,7 @@ for no visible reason.
 ## Limitations
 
 * Tokens are stored unencrypted in the app's private storage.
-* Records are serialised by reflection over the Health Connect classes, so a library upgrade can change the JSON;
-  there are no automated tests for the app yet.
-* All read permissions are requested; there is no per-type selection.
+* Only the 13 record types the reference receiver models are written by explicit code; the remaining types are still serialised by reflection over the Health Connect
+  classes (a library upgrade can change that JSON, and R8 stays off because of it). A unit test guards the explicit encoder against the reflective output.
 * The interface is a minimal, English-only screen built in code.
 * One gateway and one user are assumed; the receiver has no sign-in of its own.
