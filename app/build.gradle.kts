@@ -11,7 +11,7 @@ val defaultGatewayDomain: String = providers.gradleProperty("gate.defaultDomain"
 // Single source of truth for the version. versionCode is derived from it, so it can never fall below an earlier build
 // (Android refuses to "downgrade"): major.minor[.patch] -> major*10000 + minor*100 + patch
 // (0.3 -> 300, 0.3.1 -> 301, 1.0.0 -> 10000). Releases are tagged v<versionName>.
-val appVersionName = "0.3"
+val appVersionName = "0.3.1"
 val appVersionCode: Int = run {
     val parts = appVersionName.split(".").map { it.toIntOrNull() ?: error("versionName must be numeric major.minor[.patch]: $appVersionName") }
     require(parts.size in 2..3 && parts[1] < 100 && parts.getOrElse(2) { 0 } < 100) { "versionName must be major.minor[.patch] with minor and patch below 100: $appVersionName" }

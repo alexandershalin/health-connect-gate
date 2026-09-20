@@ -24,7 +24,7 @@ import kotlin.reflect.KClass
 
 internal data class SyncConfig(
     val historyStart: Instant, val historyEnd: Instant?, val chunkMonths: Int, val batchSize: Int,
-    val acceptsGzip: Boolean = false, val recordFormat: Int = 1
+    val acceptsGzip: Boolean = false, val recordFormat: Int = 1, val acceptsChanges: Boolean = false
 ) {
     val fingerprint: String get() = "$historyStart|${historyEnd ?: "now"}|$chunkMonths|$batchSize"
 }
@@ -77,6 +77,28 @@ internal class SyncEngine(
             diagnostics.record("permissions", "Health Connect reports ${grantedPermissions.size} granted permissions")
             val types = DataSelection.typesFor(settings.selectedCategoryIds)
             if (types.none { HealthPermission.getReadPermission(it) in grantedPermissions }) throw NoPermissionException()
+            // Updated and deleted records: when the server takes them, only the changes since the last sync are sent and the open window
+            // is not read again. Anything unusual (no token, expired token, a server that refuses) falls back to the full read below.
+            val grantedTypes = types.filter { HealthPermission.getReadPermission(it) in grantedPermissions }.toSet()
+            val changesScope = ChangesSync.scopeOf(domainProvider(), grantedTypes)
+            val changes = if (config.acceptsChanges) ChangesSync(HealthConnectChangeFeed(client), PrefsChangesState(context),
+                { upserts, deleted -> sendChanges(runId, upserts, deleted, config.batchSize) }, log = { diagnostics.record("changes", it) }) else null
+            var changesResult: ChangesResult? = null
+            if (changes != null) {
+                phase = "changes"
+                changesResult = try {
+                    changes.apply(grantedTypes, changesScope)
+                } catch (e: ChangesUnavailableException) {
+                    diagnostics.record("changes", "Server refused updates and deletions, reading the window in full: ${e.message}")
+                    null
+                }
+                (changesResult as? ChangesResult.Applied)?.takeIf { it.upserts > 0 || it.deletions > 0 }?.let {
+                    message("Changes applied: ${it.upserts} new or updated, ${it.deletions} deleted")
+                    diagnostics.record("changes", "Applied ${it.upserts} new or updated and ${it.deletions} deleted records")
+                }
+                (changesResult as? ChangesResult.FullReadNeeded)?.let { diagnostics.record("changes", "Full read: ${it.reason}") }
+            }
+            val changesApplied = changesResult is ChangesResult.Applied
             // The server manifest is the source of truth. Never let a stale local cursor skip a server-assigned range.
             var month = YearMonth.from(start.atZone(ZoneOffset.UTC))
             val lastMonth = YearMonth.from(end.minusNanos(1).atZone(ZoneOffset.UTC))
@@ -92,6 +114,10 @@ internal class SyncEngine(
                 val open = Duration.between(chunkEnd, runStart) < Duration.ofHours(24)
                 val chunkId = if (open) "${month}|${chunkStart}|open" else "${month}|${chunkStart}|${chunkEnd}"
                 if (!open && (chunkId in serverCompletedChunks || prefs.getString("completed:$chunkId", null) == "1")) {
+                    periodsDone++
+                    month = month.plusMonths(config.chunkMonths.toLong()); continue
+                }
+                if (open && changesApplied) { // the changes token already delivered everything that happened in this window
                     periodsDone++
                     month = month.plusMonths(config.chunkMonths.toLong()); continue
                 }
@@ -116,6 +142,7 @@ internal class SyncEngine(
                 prefs.edit().putString("completed:$chunkId", "1").putString("next_month", month.plusMonths(config.chunkMonths.toLong()).toString()).apply()
                 month = month.plusMonths(config.chunkMonths.toLong())
             }
+            (changesResult as? ChangesResult.FullReadNeeded)?.let { changes?.remember(it, changesScope) }
             message("Completed")
             status.success(runRecords)
             prefs.edit().remove("run_id").apply()
@@ -135,7 +162,8 @@ internal class SyncEngine(
         return SyncConfig(
             start, end, json.optInt("chunk_months", 1).coerceIn(1, 12), json.optInt("batch_size", 250).coerceIn(25, 500),
             // Older servers do not send these: then the app keeps the plain, full format they understand.
-            acceptsGzip = json.optBoolean("accepts_gzip", false), recordFormat = json.optInt("record_format", 1))
+            acceptsGzip = json.optBoolean("accepts_gzip", false), recordFormat = json.optInt("record_format", 1),
+            acceptsChanges = json.optBoolean("accepts_changes", false))
     }
 
     private suspend fun fetchServerCompletedChunks(): Set<String> {
@@ -162,7 +190,7 @@ internal class SyncEngine(
     private suspend fun sendBatch(runId: String, chunkId: String, start: Instant, end: Instant, records: List<Record>) {
         val array = JSONArray()
         val explicit = recordFormat >= RecordJson.FORMAT
-        records.forEach { array.put((if (explicit) RecordJson.encode(it) else null) ?: JSONObject(RecordCatalog.recordJson(it))) }
+        records.forEach { array.put(encodeRecord(it, explicit)) }
         val envelope = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
             .put("chunk_start", start.toString()).put("chunk_end", end.toString()).put("records", array)
         if (explicit) envelope.put("record_format", RecordJson.FORMAT)
@@ -173,6 +201,32 @@ internal class SyncEngine(
             response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip)
         }
         if (!response.optBoolean("ok", true) && response.optInt("accepted", -1) < 0) throw IllegalStateException("Sync rejected")
+    }
+
+    private fun encodeRecord(record: Record, explicit: Boolean): JSONObject =
+        (if (explicit) RecordJson.encode(record) else null) ?: JSONObject(RecordCatalog.recordJson(record))
+
+    /** One page of Health Connect changes: new and corrected records, then the ids of deleted ones. */
+    private suspend fun sendChanges(runId: String, upserts: List<Record>, deletedIds: List<String>, batchSize: Int) {
+        val explicit = recordFormat >= RecordJson.FORMAT
+        val docs = upserts.map { encodeRecord(it, explicit) }
+        for (envelope in ChangesEnvelope.batches(runId, if (explicit) RecordJson.FORMAT else null, docs, deletedIds, batchSize)) {
+            val body = envelope.toString()
+            var response = changesRequest(body)
+            if (response.optBoolean("unauthorized", false)) {
+                if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
+                response = changesRequest(body)
+            }
+            if (response.optBoolean("unauthorized", false)) throw AuthRequiredException("Hermes session expired; sign in again")
+            if (!response.optBoolean("ok", false)) throw IllegalStateException("Changes rejected")
+        }
+    }
+
+    private fun changesRequest(body: String): JSONObject = try {
+        request("POST", "/api/health/changes", body, prefs.getString("access_token", null), compress = acceptsGzip)
+    } catch (e: HttpStatusException) {
+        // 404/405/501: a proxy that forwards only known paths, or a server that announced more than it implements. Not fatal.
+        if (e.code == 404 || e.code == 405 || e.code == 501) throw ChangesUnavailableException("HTTP ${e.code}") else throw e
     }
 
     private suspend fun completeChunk(runId: String, chunkId: String, start: Instant, end: Instant) {

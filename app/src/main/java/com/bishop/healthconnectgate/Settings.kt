@@ -9,6 +9,7 @@ import android.content.Context
 internal class Settings(context: Context) {
     private val legacy = context.getSharedPreferences("bridge_sync", Context.MODE_PRIVATE)
     private val own = context.getSharedPreferences("gate_settings", Context.MODE_PRIVATE)
+    private val changes = context.getSharedPreferences(PrefsChangesState.PREFS_NAME, Context.MODE_PRIVATE)
 
     var domain: String
         get() = legacy.getString("gateway_domain", BuildConfig.DEFAULT_GATEWAY_DOMAIN) ?: BuildConfig.DEFAULT_GATEWAY_DOMAIN
@@ -27,6 +28,7 @@ internal class Settings(context: Context) {
             .remove("config_fingerprint").remove("next_month")
         legacy.all.keys.filter { it.startsWith("completed:") }.forEach { editor.remove(it) }
         editor.apply()
+        changes.edit().clear().apply() // the changes token belongs to a server; the next sign-in starts with a full read
     }
 
     /** Ids of the chosen [DataCategory]s; null until the user chooses (then the defaults apply). */
