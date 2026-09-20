@@ -1,0 +1,31 @@
+# Build outputs and caches
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing material and secrets: never commit
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+local.properties
+.env
+.env.*
+*.env
+secrets.*
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+captures/
+*.log
