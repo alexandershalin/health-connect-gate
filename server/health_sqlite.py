@@ -691,3 +691,99 @@ class SqliteStore:
         if not row or row[2] is None:
             return []
         return unpack_hr(row[1], row[2]) if row[0] == KIND_CODES["HeartRate"] else unpack_speed(row[1], row[2])
+
+
+# --------------------------------------------------------------------------- backup / verify
+
+class BackupError(Exception):
+    """A database file that cannot be backed up or does not pass verification (the message is safe to print)."""
+
+
+def _open_readonly(path: Path) -> sqlite3.Connection:
+    # Never creates the file, never runs the schema and never changes it: safe on the live database.
+    try:
+        return sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True, isolation_level=None, timeout=30)
+    except sqlite3.Error as exc:
+        raise BackupError(f"cannot open {path}: {exc}") from exc
+
+
+def verify_database(path: Path | str) -> dict:
+    """Read-only structural check of a health-sync database. Returns counters, raises BackupError when it is not sound."""
+    path = Path(path)
+    if not path.is_file():
+        raise BackupError(f"no such file: {path}")
+    db = _open_readonly(path)
+    try:
+        try:
+            if db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise BackupError(f"{path} is not a health-sync database")
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise BackupError(f"{path} has schema {version}; this program understands up to {SCHEMA_VERSION}")
+            problems = [row[0] for row in db.execute("PRAGMA integrity_check(20)")]
+            if problems != ["ok"]:
+                raise BackupError("integrity_check failed: " + "; ".join(problems[:5]))
+            records = db.execute("SELECT COUNT(*) FROM rec").fetchone()[0]
+            stubs = db.execute("SELECT COUNT(*) FROM rec WHERE canon IS NOT NULL").fetchone()[0]
+            chunks = db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            diag, distinct = db.execute("SELECT COUNT(*), COUNT(DISTINCT event_id) + SUM(event_id IS NULL) "
+                                        "FROM diagnostics").fetchone()
+        except sqlite3.Error as exc:
+            raise BackupError(f"{path} is not readable as a health-sync database: {exc}") from exc
+        return {"schema": version, "records": records, "mirror_stubs": stubs, "chunks": chunks,
+                "diagnostics": diag, "diagnostics_duplicates": diag - (distinct or 0), "bytes": path.stat().st_size}
+    finally:
+        db.close()
+
+
+def backup_database(source: Path | str, dest: Path | str) -> dict:
+    """Write a consistent, compacted copy of ``source`` to the new file ``dest`` and verify it.
+
+    Safe while the receiver is running: the source is opened read-only and copied with ``VACUUM INTO`` (one
+    consistent snapshot; a writer waits for it for a moment). ``dest`` must not exist. The copy is written under a
+    temporary name, checked, flushed to disk and only then renamed, so ``dest`` is either complete or absent.
+    A ``<dest>.sha256`` file (``sha256sum -c`` format) is written next to it.
+    """
+    source, dest = Path(source), Path(dest)
+    if not source.is_file():
+        raise BackupError(f"no such database: {source}")
+    if dest.exists():
+        raise BackupError(f"refusing to overwrite {dest}")
+    dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    partial = dest.with_name(dest.name + ".partial")
+    try:
+        fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)  # VACUUM INTO wants a new or empty file
+    except FileExistsError:
+        raise BackupError(f"{partial} exists (an unfinished backup?); remove it and retry") from None
+    os.close(fd)
+    try:
+        verify_database(source)  # a damaged source must not silently become "the" backup
+        src = _open_readonly(source)
+        try:
+            src.execute("VACUUM INTO ?", (str(partial),))
+        except sqlite3.Error as exc:
+            raise BackupError(f"copy failed: {exc}") from exc
+        finally:
+            src.close()
+        info = verify_database(partial)
+        digest = hashlib.sha256()
+        with open(partial, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(block)
+            os.fsync(fh.fileno())
+        os.replace(partial, dest)
+        sidecar = dest.with_name(dest.name + ".sha256")
+        sidecar.write_text(f"{digest.hexdigest()}  {dest.name}\n")
+        os.chmod(sidecar, 0o600)
+        try:
+            dfd = os.open(dest.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except OSError:
+            pass
+        return {**info, "path": str(dest), "sha256": digest.hexdigest()}
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise

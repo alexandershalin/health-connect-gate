@@ -15,6 +15,13 @@ Authorization/Cookie headers are forwarded to HEALTH_RECEIVER_AUTH_URL (by defau
 ``/api/auth/me``) and the request is accepted only on HTTP 200. Anything else fails closed. No health payload or
 credential is ever logged.
 
+Command line (no arguments = serve, so existing service units keep working):
+
+    receiver.py [serve]        run the server
+    receiver.py backup [DEST]  consistent copy of the SQLite database (safe while the server runs); DEST is a file or a
+                               directory (default <ROOT>/backups/health_sync-<UTC time>.sqlite3); never overwrites
+    receiver.py verify [FILE]  read-only integrity check of FILE (default: the live database); exit status 1 on failure
+
 Configuration (environment):
     HEALTH_RECEIVER_HOST      bind address                (default 127.0.0.1)
     HEALTH_RECEIVER_PORT      bind port                   (default 9120)
@@ -31,6 +38,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import argparse
 import logging
 import os
 import re
@@ -798,7 +806,56 @@ def make_server(host: str, port: int, api: HealthApi, auth: Authenticator) -> Re
     return ReceiverServer((host, port), handler)
 
 
+def _db_path(env, root: Path) -> Path:
+    return Path(env.get("HEALTH_RECEIVER_DB") or root / "health_sync.sqlite3")
+
+
+def _report(info: dict) -> str:
+    return (f"schema {info['schema']}, {info['records']} records ({info['mirror_stubs']} mirror stubs), {info['chunks']} chunks, "
+            f"{info['diagnostics']} diagnostic events ({info['diagnostics_duplicates']} duplicates), {info['bytes']} bytes")
+
+
+def cli_backup(env, dest_arg: Optional[str]) -> int:
+    root = Path(env.get("HEALTH_RECEIVER_ROOT") or DEFAULT_ROOT)
+    name = "health_sync-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".sqlite3"
+    dest = Path(dest_arg) if dest_arg else root / "backups" / name
+    if dest_arg and (dest.is_dir() or dest_arg.endswith(os.sep)):
+        dest = dest / name
+    try:
+        info = health_sqlite.backup_database(_db_path(env, root), dest)
+    except health_sqlite.BackupError as exc:
+        print(f"backup failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"backup written: {info['path']}\n  {_report(info)}\n  sha256 {info['sha256']}")
+    print("This copy is on the same machine as the live data: also copy it somewhere else.")
+    return 0
+
+
+def cli_verify(env, file_arg: Optional[str]) -> int:
+    root = Path(env.get("HEALTH_RECEIVER_ROOT") or DEFAULT_ROOT)
+    path = Path(file_arg) if file_arg else _db_path(env, root)
+    try:
+        info = health_sqlite.verify_database(path)
+    except health_sqlite.BackupError as exc:
+        print(f"verify failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"ok: {path}\n  {_report(info)}")
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="receiver.py", description="Health Connect Gate receiver (see the module docstring).")
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("serve", help="run the server (the default)")
+    p_backup = sub.add_parser("backup", help="consistent copy of the SQLite database, safe while the server runs")
+    p_backup.add_argument("dest", nargs="?", help="target file or directory (default <ROOT>/backups/)")
+    p_verify = sub.add_parser("verify", help="read-only integrity check of a database file")
+    p_verify.add_argument("file", nargs="?", help="database file (default: the live database)")
+    args = parser.parse_args(argv)
+    if args.command == "backup":
+        return cli_backup(os.environ, args.dest)
+    if args.command == "verify":
+        return cli_verify(os.environ, args.file)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(levelname)s %(message)s")
     env = os.environ
     root = Path(env.get("HEALTH_RECEIVER_ROOT") or DEFAULT_ROOT)
@@ -809,7 +866,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     store_kind = env.get("HEALTH_RECEIVER_STORE", "sqlite")
     files = Store(root, lock)
     if store_kind == "sqlite":
-        db_path = Path(env.get("HEALTH_RECEIVER_DB") or root / "health_sync.sqlite3")
+        db_path = _db_path(env, root)
         db = health_sqlite.SqliteStore(db_path)
         if db.count() == 0 and files.records.exists() and files.records.stat().st_size > 0:
             # An empty database next to existing JSONL data would accept every record again as "new".

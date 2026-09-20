@@ -272,8 +272,20 @@ curl -si https://gateway.example.com/api/health/sync/status        # HTTP 401 wi
 
 ### Backups and safety
 
-* With the SQLite store the database file is the only copy of what the app has uploaded. Back it up with SQLite's own copy, not `cp` of a
-  running file: `python3 -c "import sqlite3; s=sqlite3.connect('file:data/health_sync.sqlite3?mode=ro', uri=True); s.backup(sqlite3.connect('backup.sqlite3'))"`.
+* With the SQLite store the database file is the only copy of what the app has uploaded. Do not `cp` a running database; use the built-in
+  command, which is safe while the receiver is running (read-only copy of one consistent snapshot, verified, written under a temporary name and
+  then renamed, mode 0600, never overwrites, plus a `.sha256` file):
+
+  ```bash
+  python3 receiver.py backup                  # -> $HEALTH_RECEIVER_ROOT/backups/health_sync-<UTC time>.sqlite3
+  python3 receiver.py backup /mnt/usb/        # into a directory (or give a file name)
+  python3 receiver.py verify [FILE]           # integrity check of a copy (default: the live database); exit status 1 on failure
+  ```
+
+  Run it with the same environment as the service (`HEALTH_RECEIVER_ROOT`, or `HEALTH_RECEIVER_DB`). The command prints counters only, never record
+  contents. A copy on the same disk is not a backup: move it to another machine. A writer waits for a moment while the snapshot is taken.
+  Nothing runs it automatically; schedule it yourself if you want regular copies.
+* Restore: stop the service, put the copy in place of the database file (`sha256sum -c` first, `receiver.py verify FILE`), start the service.
 * The data is health data: keep the directory private, serve only over HTTPS, use a strong password, and consider restricting access by
   VPN or IP. The receiver never logs record contents or tokens.
 
