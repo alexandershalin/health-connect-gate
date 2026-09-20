@@ -90,8 +90,9 @@ absent) but, if present, must be later than `history_start` – otherwise the ap
 { "chunks": { "2026-09|2026-09-01T00:00:00Z|2026-09-20T12:00:00Z": { "complete": true } } }
 ```
 
-A chunk listed with `"complete": true` is skipped by the app. The chunk id is chosen by the app (`<month>|<start>|<end>`) and
-is opaque to the server.
+A chunk listed with `"complete": true` is skipped by the app. The chunk id is chosen by the app and is opaque to the server: `<month>|<start>|<end>` for a fixed window and `<month>|<start>|open` for a
+window that ends "now" (the same id is reused while the start does not change, and such a window is never skipped). The reference receiver keeps the
+newest 200 chunk ids.
 
 ### Upload – `POST /api/health/sync`
 
@@ -122,7 +123,8 @@ is opaque to the server.
 { "schema_version": 1, "events": [ { "event_id": "uuid", "timestamp": "…", "phase": "sync_phase", "message": "…", "exception_type": "…", "stack_trace": "…" } ] }
 ```
 
-At most 50 events per request; `exception_type` and `stack_trace` are optional. Servers should treat the text as untrusted and may redact it further.
+At most 50 events per request; `exception_type` and `stack_trace` are optional. Servers should treat the text as untrusted and may redact it further,
+and should ignore an `event_id` they already have (the reference receiver does), because a retried upload repeats events.
 
 ### Checklist for a compatible backend
 
@@ -265,6 +267,7 @@ curl -si https://gateway.example.com/api/health/sync/status        # HTTP 401 wi
 * Data goes only to the domain you enter, over HTTPS (plain HTTP is never used). No analytics, advertising or
   third-party services.
 * Tokens are kept in the app's private storage. Android backup is disabled.
+* See the [privacy policy](PRIVACY.md) and the [security policy](SECURITY.md) (how to report a vulnerability).
 
 ## Requirements
 
@@ -272,7 +275,7 @@ Android 8.0 (API 26) or newer with Health Connect (built into Android 14+, a sep
 
 ## Build
 
-Requires JDK 17 and the Android SDK (platform 35, build-tools 35).
+Requires JDK 17 and the Android SDK (platform 36, build-tools 35 or newer).
 
 ```
 ./gradlew :app:assembleDebug            # debug APK: app/build/outputs/apk/debug/
@@ -285,7 +288,8 @@ The repository ships **without** a default server address. To pre-fill the domai
 ## Releases
 
 Releases are built by GitHub Actions and are signed with the project's release key. Pushing a tag `v<versionName>`
-(the tag must equal `versionName` in `app/build.gradle.kts`, for example `v0.1`) builds the APK, verifies its
+(the tag must equal `versionName` in `app/build.gradle.kts`, for example `v0.3`; `versionCode` is derived from it as
+`major*10000 + minor*100 + patch`, so it can never fall below an earlier build and cause Android's "downgrade" refusal) builds the APK, verifies its
 signature, package name and version, and publishes it with a SHA-256 file as a GitHub Release (versions `0.x` are
 marked as pre-releases). Nothing is built on ordinary pushes; **CI** (app build, server tests, secret scan) runs on pull requests and on demand.
 

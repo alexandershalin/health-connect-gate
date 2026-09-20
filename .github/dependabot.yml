@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Gradle dependencies and the Gradle wrapper
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      androidx:
+        patterns: ["androidx.*"]
+    ignore:
+      # A new major Android Gradle Plugin needs a migration of the build scripts: do it by hand.
+      - dependency-name: "com.android.application"
+        update-types: ["version-update:semver-major"]
+  # GitHub Actions (keeps the commit-SHA pins up to date)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "ci"

@@ -30,9 +30,10 @@ jobs:
       - name: Read the version from Gradle
         id: ver
         run: |
-          name=$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts | head -1)
-          code=$(sed -nE 's/.*versionCode = ([0-9]+).*/\1/p' app/build.gradle.kts | head -1)
-          [ -n "$name" ] && [ -n "$code" ] || { echo "::error::versionName/versionCode not found"; exit 1; }
+          out=$(./gradlew --no-daemon -q :app:printVersion 2>/dev/null)
+          name=$(sed -n 's/^versionName=//p' <<<"$out")
+          code=$(sed -n 's/^versionCode=//p' <<<"$out")
+          [ -n "$name" ] && [ -n "$code" ] || { echo "::error::could not read versionName/versionCode from Gradle"; exit 1; }
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
