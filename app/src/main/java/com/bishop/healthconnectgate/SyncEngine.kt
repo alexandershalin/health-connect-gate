@@ -213,11 +213,10 @@ internal class SyncEngine(
         for (envelope in ChangesEnvelope.batches(runId, if (explicit) RecordJson.FORMAT else null, docs, deletedIds, batchSize)) {
             val body = envelope.toString()
             var response = changesRequest(body)
-            if (response.optBoolean("unauthorized", false)) {
-                if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
-                response = changesRequest(body)
-            }
-            if (response.optBoolean("unauthorized", false)) throw AuthRequiredException("Hermes session expired; sign in again")
+            if (response.optBoolean("unauthorized", false) && refresh()) response = changesRequest(body)
+            // Updates are optional: a 401 here (a gateway that answers unknown paths that way) must not look like an expired session and
+            // force a new sign-in. A really expired session surfaces on the next request of the full read.
+            if (response.optBoolean("unauthorized", false)) throw ChangesUnavailableException("HTTP 401")
             if (!response.optBoolean("ok", false)) throw IllegalStateException("Changes rejected")
         }
     }
