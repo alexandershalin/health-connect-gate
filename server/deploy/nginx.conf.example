@@ -18,6 +18,7 @@ server {
     location = /api/health/config              { proxy_pass http://127.0.0.1:9120; }
     location = /api/health/sync                { proxy_pass http://127.0.0.1:9120; }
     location = /api/health/sync/status         { proxy_pass http://127.0.0.1:9120; }
+    location = /api/health/changes             { proxy_pass http://127.0.0.1:9120; }
     location = /api/health/diagnostics         { proxy_pass http://127.0.0.1:9120; }
     location = /api/health/diagnostics/status  { proxy_pass http://127.0.0.1:9120; }
 

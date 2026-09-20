@@ -1,6 +1,6 @@
 # Same routing as nginx.conf.example: the five health endpoints to the receiver, everything else to the dashboard.
 gateway.example.com {
-    @health path /api/health/config /api/health/sync /api/health/sync/status /api/health/diagnostics /api/health/diagnostics/status
+    @health path /api/health/config /api/health/sync /api/health/sync/status /api/health/changes /api/health/diagnostics /api/health/diagnostics/status
     handle @health {
         reverse_proxy 127.0.0.1:9120
     }
