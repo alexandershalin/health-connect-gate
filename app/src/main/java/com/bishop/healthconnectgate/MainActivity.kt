@@ -47,8 +47,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         installUncaughtExceptionCapture(applicationContext) { prefs.getString("gateway_domain", BuildConfig.DEFAULT_GATEWAY_DOMAIN) ?: BuildConfig.DEFAULT_GATEWAY_DOMAIN }
         lifecycleScope.launch(Dispatchers.IO) { DiagnosticLogger(applicationContext) { prefs.getString("gateway_domain", BuildConfig.DEFAULT_GATEWAY_DOMAIN) ?: BuildConfig.DEFAULT_GATEWAY_DOMAIN }.uploadPending() }
         status = TextView(this).apply { textSize = 17f; text = getString(R.string.app_name) + "\n" + BUILD_MARKER }

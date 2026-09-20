@@ -5,8 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.PeriodicWorkRequestBuilder
@@ -41,6 +44,13 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     private fun notification(text: String): Notification { val manager = applicationContext.getSystemService(NotificationManager::class.java); if (android.os.Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, "Health synchronization", NotificationManager.IMPORTANCE_LOW)); return if (android.os.Build.VERSION.SDK_INT >= 26) Notification.Builder(applicationContext, CHANNEL).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(applicationContext).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() }
     private fun createForegroundInfo(text: String) = if (android.os.Build.VERSION.SDK_INT >= 34) ForegroundInfo(ID, notification(text), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH) else ForegroundInfo(ID, notification(text))
     companion object { const val UNIQUE_NAME = "health-connect-periodic-sync"; private const val CHANNEL = "health_sync"; private const val ID = 4102
-        fun schedule(context: Context) { WorkManager.getInstance(context).enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.UPDATE, PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS).build()) }
+        /** Hourly sync, but only with a network connection and a battery that is not low; retries back off exponentially. */
+        fun schedule(context: Context) {
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+        }
     }
 }

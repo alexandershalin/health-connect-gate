@@ -12,6 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Duration
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneOffset
@@ -44,7 +45,8 @@ internal class SyncEngine(
         try {
             phase = "fetch_config"
             val config = fetchConfig()
-            val end = minOf(config.historyEnd ?: Instant.now(), Instant.now())
+            val runStart = Instant.now()
+            val end = minOf(config.historyEnd ?: runStart, runStart)
             val start = minOf(config.historyStart, end)
             if (prefs.getString("config_fingerprint", null) != config.fingerprint) {
                 val access = prefs.getString("access_token", null)
@@ -67,8 +69,11 @@ internal class SyncEngine(
             while (!month.isAfter(lastMonth)) {
                 val chunkStart = maxOf(start, month.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant())
                 val chunkEnd = minOf(end, month.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant())
-                val chunkId = "${month}|${chunkStart}|${chunkEnd}"
-                if (chunkId in serverCompletedChunks || prefs.getString("completed:$chunkId", null) == "1") {
+                // A window that ends "now" changes with every run. It gets the stable id "<month>|<start>|open" (so repeated runs do not
+                // pile up new server entries) and is never skipped: new records may have appeared since it was last completed.
+                val open = Duration.between(chunkEnd, runStart) < Duration.ofHours(24)
+                val chunkId = if (open) "${month}|${chunkStart}|open" else "${month}|${chunkStart}|${chunkEnd}"
+                if (!open && (chunkId in serverCompletedChunks || prefs.getString("completed:$chunkId", null) == "1")) {
                     month = month.plusMonths(config.chunkMonths.toLong()); continue
                 }
                 message("Reading ${month}")
@@ -183,6 +188,8 @@ internal class SyncLock(context: Context) {
     fun release() { runCatching { fileLock?.release() }; fileLock = null; runCatching { channel?.close() }; channel = null }
 }
 
+// MindfulnessSessionRecord is still flagged experimental in Health Connect 1.1.0; opting in keeps those records syncing.
+@OptIn(androidx.health.connect.client.feature.ExperimentalMindfulnessSessionApi::class)
 internal object RecordCatalog {
     val types: List<KClass<out Record>> = listOf(
         androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class, androidx.health.connect.client.records.BasalBodyTemperatureRecord::class,

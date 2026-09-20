@@ -15,7 +15,6 @@ import java.util.UUID
 internal class DiagnosticLogger(private val context: Context, private val domainProvider: () -> String) {
     private val file = File(context.filesDir, "diagnostics.jsonl")
     private val prefs = context.getSharedPreferences("bridge_sync", Context.MODE_PRIVATE)
-    private val lock = Any()
 
     fun record(phase: String, message: String, error: Throwable? = null) {
         val event = JSONObject()
@@ -45,7 +44,13 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         }
     }
 
-    suspend fun uploadPending() = withContext(Dispatchers.IO) {
+    /** Uploads the outbox. Only one upload runs per process: concurrent callers used to send the same events several times. */
+    suspend fun uploadPending() {
+        if (!uploadGate.tryLock()) return
+        try { uploadPendingLocked() } finally { uploadGate.unlock() }
+    }
+
+    private suspend fun uploadPendingLocked() = withContext(Dispatchers.IO) {
         val token = prefs.getString("access_token", null)?.takeIf { it.isNotBlank() } ?: return@withContext
         val pending: List<String> = synchronized(lock) {
             if (!file.exists()) return@synchronized emptyList()
@@ -89,7 +94,12 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         .replace(Regex("(?i)(access_token|refresh_token|token|authorization)\\s*[:=]\\s*[^,;\\s}]+"), "$1=[REDACTED]")
         .take(MAX_FIELD_LENGTH)
 
-    companion object { private const val MAX_EVENTS = 50; private const val MAX_FIELD_LENGTH = 12000 }
+    companion object {
+        private const val MAX_EVENTS = 50; private const val MAX_FIELD_LENGTH = 12000
+        // Instances are created all over the app; the file lock and the upload gate must be shared by all of them.
+        private val lock = Any()
+        private val uploadGate = kotlinx.coroutines.sync.Mutex()
+    }
 }
 
 private val captureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
