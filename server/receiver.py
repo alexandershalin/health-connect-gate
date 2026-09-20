@@ -38,6 +38,7 @@ import signal
 import sys
 import threading
 import time
+import zlib
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -52,6 +53,7 @@ log = logging.getLogger("health-receiver")
 MAX_BODY_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 500
 MAX_EVENTS = 50
+RECORD_FORMAT = 2  # 2 = canonical units only (see the README); the full format 1 is still accepted
 AUTH_CACHE_MAX_ENTRIES = 256
 AUTH_CACHE_MAX_TTL = 60.0
 AUTH_NEGATIVE_TTL = 5.0
@@ -333,6 +335,8 @@ class HealthApi:
             if latest is not None:
                 config["history_start"] = latest.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
             config["history_end"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        config["accepts_gzip"] = True  # the app compresses uploads only when the server says it can read them
+        config["record_format"] = RECORD_FORMAT
         return config
 
     def sync_status(self) -> dict:
@@ -651,6 +655,26 @@ class Handler(BaseHTTPRequestHandler):
                  (time.monotonic() - self._t0) * 1000)
 
     def _read_body(self) -> bytes:
+        """The request body with any Content-Encoding removed (gzip is supported; identity is the default)."""
+        raw = self._read_raw_body()
+        encoding = (self.headers.get("Content-Encoding") or "identity").strip().lower()
+        if encoding in ("", "identity"):
+            return raw
+        if encoding != "gzip":
+            raise HttpError(415, "unsupported Content-Encoding")
+        decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        try:
+            # Bounded output: a few kilobytes of gzip must not be able to expand into gigabytes.
+            out = decoder.decompress(raw, MAX_BODY_BYTES + 1)
+            if len(out) > MAX_BODY_BYTES or decoder.unconsumed_tail:
+                raise HttpError(413, "decompressed body too large")
+        except zlib.error:
+            raise HttpError(400, "invalid gzip body")
+        if not decoder.eof:
+            raise HttpError(400, "truncated gzip body")
+        return out
+
+    def _read_raw_body(self) -> bytes:
         if (self.headers.get("Transfer-Encoding") or "").lower() == "chunked":
             data = bytearray()
             while True:

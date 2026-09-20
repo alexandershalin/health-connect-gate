@@ -508,6 +508,72 @@ class StoreBehaviourTests(Base):
         self.assertIn("refusing to start", out.stderr)
 
 
+DERIVED_UNITS = {"distance": ("feet", "inches", "kilometers", "miles"), "energy": ("calories", "joules", "kilojoules"),
+                 "basalMetabolicRate": ("watts",), "weight": ("grams", "micrograms", "milligrams", "ounces", "pounds"),
+                 "height": ("feet", "inches", "kilometers", "miles")}
+
+
+def canonical(record, drop_nulls=False):
+    """What the app sends as record_format 2: canonical units only, no null annotations, no duplicated id or end offset."""
+    r = copy.deepcopy(record)
+    d = r["data"]
+    for key, names in DERIVED_UNITS.items():
+        for name in names:
+            d.get(key, {}).pop(name, None)
+    for sample in d.get("samples", []):
+        if isinstance(sample.get("speed"), dict):
+            sample["speed"].pop("kilometersPerHour", None)
+            sample["speed"].pop("milesPerHour", None)
+
+    def strip(o):
+        if isinstance(o, dict):
+            for k in [k for k in o if k.endswith("$annotations") and o[k] is None]:
+                del o[k]
+            for v in o.values():
+                strip(v)
+        elif isinstance(o, list):
+            for v in o:
+                strip(v)
+    strip(d)
+    d["metadata"].pop("id", None)
+    if d.get("endZoneOffset") == d.get("startZoneOffset"):
+        d.pop("endZoneOffset", None)
+    if drop_nulls:
+        for name in ("title", "notes", "plannedExerciseSessionId"):
+            if d.get(name) is None:
+                d.pop(name, None)
+        if d.get("laps") == []:
+            d.pop("laps")
+    return r
+
+
+class CanonicalFormatTests(unittest.TestCase):
+    FIELDS = ("k", "kind", "s", "d", "v", "src", "lm", "z", "cv", "samples", "raw", "canon")
+
+    def samples(self):
+        return [steps("test-1", GFIT), distance("test-2", XIAOMI), kcal("TotalCaloriesBurned", "test-3", GFIT),
+                kcal("ActiveCaloriesBurned", "test-4", XIAOMI), heart("test-5"), speed("test-6"), sleep("test-7"),
+                exercise("test-8"), weight("test-9"), blood_pressure("test-10")]
+
+    def test_the_canonical_record_is_stored_exactly_like_the_full_one(self):
+        for full in self.samples():
+            for drop_nulls in (False, True):
+                small = canonical(full, drop_nulls)
+                self.assertLess(len(json.dumps(small)), len(json.dumps(full)), full["kind"])
+                a, b = hs.compact(full), hs.compact(small)
+                self.assertNotEqual(b.kind, hs.RAW_KIND, f"{full['kind']} fell back to a raw row")
+                for name in self.FIELDS:
+                    self.assertEqual(getattr(a, name), getattr(b, name), f"{full['kind']}.{name}")
+                self.assertEqual(a.x or {}, b.x or {}, full["kind"])
+
+    def test_a_canonical_record_with_a_different_end_zone_keeps_it(self):
+        full = steps("test-z", GFIT)
+        full["data"]["endZoneOffset"] = "+04:00"
+        small = canonical(full)
+        self.assertIn("endZoneOffset", small["data"])                        # different offsets are never merged
+        self.assertEqual(hs.compact(small).kind, hs.RAW_KIND)                # ...and the unusual shape is kept verbatim
+
+
 class DiagnosticsAndChunksTests(Base):
     def test_duplicate_event_ids_are_stored_once(self):
         ev = {"event_id": "e1", "timestamp": "2026-01-01T00:00:00Z", "phase": "sync", "message": "m"}

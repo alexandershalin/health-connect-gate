@@ -189,8 +189,8 @@ def pack_speed(start_ms: int, samples: list) -> bytes:
             raise Fallback("speed sample shape")
         sp = dict(smp["speed"])
         mps = sp.pop("metersPerSecond")
-        sp.pop("kilometersPerHour")
-        sp.pop("milesPerHour")
+        sp.pop("kilometersPerHour", None)   # derived units are optional: record_format 2 omits them
+        sp.pop("milesPerHour", None)
         if sp or not isinstance(mps, (int, float)) or isinstance(mps, bool):
             raise Fallback("speed value")
         out += _uvarint(_zz(iso_to_ms(smp["time"]) - start_ms)) + struct.pack("<d", float(mps))
@@ -250,7 +250,7 @@ def _num(x: Any) -> float:
 def _pop_units(d: dict, keep: str, derived: Iterable[str]) -> Any:
     unit = d.pop(keep)
     for name in derived:
-        d.pop(name)
+        d.pop(name, None)  # derived conversions are optional (record_format 2 omits them)
     return unit
 
 
@@ -284,7 +284,7 @@ def _compact_modelled(rec: dict, key: str, row: Row) -> None:
     row.kind = kind
 
     md = dict(d.pop("metadata"))
-    if md.pop("id") != key:
+    if md.pop("id", key) != key:
         raise Fallback("metadata id")
     row.lm = iso_to_ms(md.pop("lastModifiedTime"))
     origin = dict(md.pop("dataOrigin"))
@@ -314,7 +314,8 @@ def _compact_modelled(rec: dict, key: str, row: Row) -> None:
         start, end = iso_to_ms(d.pop("startTime")), iso_to_ms(d.pop("endTime"))
         if end < start:
             raise Fallback("end before start")
-        zs, ze = d.pop("startZoneOffset"), d.pop("endZoneOffset")
+        zs = d.pop("startZoneOffset")
+        ze = d.pop("endZoneOffset", zs)  # record_format 2 drops the end offset when it equals the start offset
         if zs != ze:
             raise Fallback("zones differ")
         row.s, row.d, row.z = start, end - start, zone_to_q(zs)
@@ -347,13 +348,13 @@ def _compact_modelled(rec: dict, key: str, row: Row) -> None:
             packed.append([a - row.s, b - a, code])
         x["st"] = packed
         for name in ("title", "notes"):
-            val = d.pop(name)
+            val = d.pop(name, None)
             if val is not None:
                 x[name] = val
     elif kind == 8:
         row.v = _small_int(d.pop("exerciseType"))
         _pop_annotation(d, "exerciseType$annotations")
-        if d.pop("laps") != [] or d.pop("exerciseRouteResult", {}) != {}:
+        if d.pop("laps", []) != [] or d.pop("exerciseRouteResult", {}) != {}:
             raise Fallback("laps/route present")
         segs = []
         for sg in d.pop("segments"):
@@ -366,7 +367,7 @@ def _compact_modelled(rec: dict, key: str, row: Row) -> None:
         if segs:
             x["sg"] = segs
         for name in ("title", "notes", "plannedExerciseSessionId"):
-            val = d.pop(name)
+            val = d.pop(name, None)
             if val is not None:
                 x[name] = val
     elif kind == 9:

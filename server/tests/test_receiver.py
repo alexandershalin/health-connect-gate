@@ -2,6 +2,7 @@
 
 Run:  python3 -m unittest discover -s tests -v
 """
+import gzip
 import http.client
 import json
 import logging
@@ -149,7 +150,7 @@ class TestConfig(ReceiverTestCase):
         status, body = self.call("GET", "/api/health/config", token=None)
         self.assertEqual(status, 200)
         self.assertEqual(body, {"history_start": "1970-01-01T00:00:00Z", "history_end": None,
-                                "chunk_months": 1, "batch_size": 250})
+                                "chunk_months": 1, "batch_size": 250, "accepts_gzip": True, "record_format": 2})
 
     def test_static_and_clamps(self):
         (self.root / "health_connect_config.json").write_text(json.dumps(
@@ -157,7 +158,7 @@ class TestConfig(ReceiverTestCase):
              "batch_size": 1, "plan_id": "x", "sync_required": True}))
         _, body = self.call("GET", "/api/health/config", token=None)
         self.assertEqual(body, {"history_start": "2026-01-01T00:00:00Z", "history_end": "2026-02-01T00:00:00Z",
-                                "chunk_months": 12, "batch_size": 25})
+                                "chunk_months": 12, "batch_size": 25, "accepts_gzip": True, "record_format": 2})
 
     def test_garbage_numbers_fall_back(self):
         (self.root / "health_connect_config.json").write_text('{"chunk_months":"x","batch_size":null}')
@@ -408,6 +409,46 @@ class TestSync(ReceiverTestCase):
         self.assertEqual(other.sync(envelope([rec(1), rec(2)]))["duplicates"], 1)
         self.assertEqual(self.call("POST", "/api/health/sync", envelope([rec(2)]))[1]["duplicates"], 1)
         self.assertEqual(len(self.lines("health_connect_sync.jsonl")), 2)
+
+
+class TestGzipBodies(ReceiverTestCase):
+    def post_encoded(self, payload, encoding="gzip", path="/api/health/sync"):
+        return self.call("POST", path, raw=payload, headers={"Content-Encoding": encoding, "Content-Type": "application/json"})
+
+    def test_config_says_that_gzip_and_the_canonical_record_format_are_understood(self):
+        _, body = self.call("GET", "/api/health/config", token=None)
+        self.assertIs(body["accepts_gzip"], True)
+        self.assertEqual(body["record_format"], 2)
+
+    def test_gzip_upload_is_accepted_and_stored_like_a_plain_one(self):
+        payload = json.dumps(envelope([rec(1), rec(2)])).encode()
+        status, body = self.post_encoded(gzip.compress(payload))
+        self.assertEqual((status, body["accepted"], body["total"]), (200, 2, 2))
+        status, body = self.post_encoded(gzip.compress(payload))           # the same batch again: duplicates as usual
+        self.assertEqual((status, body["accepted"], body["duplicates"]), (200, 0, 2))
+
+    def test_identity_encoding_is_plain(self):
+        status, body = self.post_encoded(json.dumps(envelope([rec(1)])).encode(), encoding="identity")
+        self.assertEqual((status, body["accepted"]), (200, 1))
+
+    def test_diagnostics_may_be_gzipped_too(self):
+        status, body = self.post_encoded(gzip.compress(json.dumps({"events": [{"event_id": "g1"}]}).encode()),
+                                         path="/api/health/diagnostics")
+        self.assertEqual((status, body["accepted"]), (200, 1))
+
+    def test_unknown_encoding_is_refused(self):
+        self.assertEqual(self.post_encoded(b"x", encoding="br")[0], 415)
+
+    def test_corrupt_and_truncated_gzip_are_bad_requests_and_store_nothing(self):
+        good = gzip.compress(json.dumps(envelope([rec(1)])).encode())
+        self.assertEqual(self.post_encoded(b"this is not gzip")[0], 400)
+        self.assertEqual(self.post_encoded(good[:len(good) // 2])[0], 400)
+        self.assertEqual(self.lines("health_connect_sync.jsonl"), [])
+
+    def test_a_decompression_bomb_is_refused_before_it_is_expanded(self):
+        bomb = gzip.compress(b"\0" * (receiver.MAX_BODY_BYTES + 4096), compresslevel=9)
+        self.assertLess(len(bomb), 200_000)                                 # tiny on the wire, huge when expanded
+        self.assertEqual(self.post_encoded(bomb)[0], 413)
 
 
 class TestDiagnostics(ReceiverTestCase):
