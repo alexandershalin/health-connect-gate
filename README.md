@@ -171,6 +171,7 @@ There is no built-in login in the receiver: it is not meant to face the internet
 * A Linux server (or any host) with a public DNS name and TLS – the app only speaks HTTPS. A reverse proxy such as nginx or
   Caddy terminates TLS.
 * Python 3.11 or newer with the standard library only (CI runs 3.11 and 3.14; SQLite comes with Python, 3.24+ is needed).
+  Or Docker instead of Python: see [Docker](#docker).
 * For the Hermes mode, a running [Hermes Agent](https://hermes-agent.nousresearch.com/) dashboard with its username/password sign-in enabled.
 * Disk: about 60 bytes per record in the SQLite store (tens of thousands of records per month of typical data are a few MB).
 
@@ -179,7 +180,7 @@ There is no built-in login in the receiver: it is not meant to face the internet
 ```
 git clone <this repository> /opt/health-connect-gate
 cd /opt/health-connect-gate/server
-python3 -m unittest discover -s tests        # optional: 69 tests, about 10 seconds
+python3 -m unittest discover -s tests        # optional: about 15 seconds
 ```
 
 No packages need to be installed. Run it in the foreground to try it out:
@@ -192,6 +193,33 @@ python3 receiver.py
 
 For a permanent service use the example unit [`server/deploy/health-connect-gate-receiver.service`](server/deploy/health-connect-gate-receiver.service)
 (create a system user, copy the unit to `/etc/systemd/system/`, `systemctl enable --now health-connect-gate-receiver`).
+
+### Docker
+
+[`server/Dockerfile`](server/Dockerfile) builds a small image (Python standard library only, no pip, runs as an unprivileged user) and
+[`server/compose.yaml`](server/compose.yaml) runs it hardened: read-only root filesystem, all capabilities dropped, no new privileges,
+data in a named volume, the port published on `127.0.0.1` only. TLS still comes from a reverse proxy on the host (see [Reverse proxy](#reverse-proxy)).
+
+```
+cd server
+echo 'HEALTH_RECEIVER_AUTH_URL=http://host.docker.internal:9119/api/auth/me' > .env     # your auth backend (git-ignored file)
+docker compose up -d --build
+curl -s http://127.0.0.1:9120/readyz
+```
+
+* `HEALTH_RECEIVER_AUTH_URL` is required by compose. Inside a container `127.0.0.1` is the container itself, so a service on the Docker
+  host is reached as `host.docker.internal` (compose maps it). That service must listen on an address the Docker network can reach, not only on
+  `127.0.0.1` of the host; otherwise use the address of another container or host.
+* Other variables from [Configuration](#configuration) can be added to `environment:`; `HEALTH_RECEIVER_PUBLISH_PORT` changes the host port.
+  Without an auth backend every request is answered with `401` (fail closed).
+* Backups: `docker compose exec receiver python3 /app/receiver.py backup /data/backups/`, then `docker compose cp receiver:/data/backups ./backups`.
+  Check a copy with `... receiver.py verify /data/backups/<file>`. Restore: stop the service, copy the file over `/data/health_sync.sqlite3`
+  (for example with a throw-away `docker run -v` container), start the service.
+* Update: `git pull && docker compose up -d --build`. The data volume survives; the schema is upgraded on start.
+* Without compose: `docker build -t health-connect-gate-receiver server`, then `docker run -d --read-only --cap-drop ALL --tmpfs /run/receiver:uid=10001,gid=10001,mode=0700 --tmpfs /tmp
+  -e HEALTH_RECEIVER_AUTH_URL=... -p 127.0.0.1:9120:9120 -v receiver-data:/data health-connect-gate-receiver`. The image also answers
+  `docker run ... IMAGE backup` and `... verify`.
+* The health check uses `/healthz` (the process answers); `/readyz` also checks the auth backend.
 
 ### Configuration
 

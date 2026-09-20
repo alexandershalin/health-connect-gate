@@ -53,3 +53,23 @@ jobs:
         run: |
           python server/tests/smoke_write.py
           HEALTH_RECEIVER_STORE=sqlite python server/tests/smoke_write.py
+
+  docker-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate the compose file
+        run: HEALTH_RECEIVER_AUTH_URL=http://auth.invalid/ docker compose -f server/compose.yaml config -q
+      - name: Build the image
+        run: docker build -t health-connect-gate-receiver server
+      - name: Runs as an unprivileged user
+        run: test "$(docker run --rm --entrypoint id health-connect-gate-receiver -u)" != 0
+      - name: Start it and check the probes and the fail-closed default
+        run: |
+          docker run -d --name receiver --read-only --cap-drop ALL --tmpfs /run/receiver:uid=10001,gid=10001,mode=0700 --tmpfs /tmp \
+            -p 127.0.0.1:9120:9120 health-connect-gate-receiver
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:9120/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:9120/api/health/config | grep -q accepts_gzip
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9120/api/health/sync/status)" = 401
+          docker exec receiver python3 /app/receiver.py backup /data/backups/
+          docker logs receiver

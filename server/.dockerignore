@@ -1,0 +1,4 @@
+# Only receiver.py and health_sqlite.py go into the image.
+*
+!receiver.py
+!health_sqlite.py

@@ -1,0 +1,39 @@
+# Health Connect Gate receiver, hardened. Usage (from this directory):
+#
+#   export HEALTH_RECEIVER_AUTH_URL=http://host.docker.internal:9119/api/auth/me   # your auth backend, see the README
+#   docker compose up -d --build
+#
+# The port is published on 127.0.0.1 only: put a TLS reverse proxy (nginx/Caddy, see deploy/) in front of it.
+# Data lives in the named volume "receiver-data" (SQLite database). Back it up with `receiver.py backup` (README).
+services:
+  receiver:
+    build: .
+    image: health-connect-gate-receiver:local
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    environment:
+      HEALTH_RECEIVER_AUTH_URL: ${HEALTH_RECEIVER_AUTH_URL:?set HEALTH_RECEIVER_AUTH_URL to the auth backend (see the README, Docker)}
+      HEALTH_RECEIVER_STORE: sqlite
+    ports:
+      - "127.0.0.1:${HEALTH_RECEIVER_PUBLISH_PORT:-9120}:9120"
+    volumes:
+      - receiver-data:/data
+    tmpfs:
+      - /run/receiver:uid=10001,gid=10001,mode=0700
+      - /tmp:mode=1777
+    # A service on the Docker host (such as the Hermes dashboard) is reachable as host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  receiver-data:
