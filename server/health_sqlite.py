@@ -448,6 +448,14 @@ DIAG_FIELDS = ("event_id", "timestamp", "phase", "message", "exception_type", "s
 MAX_CHUNKS = 200  # newest chunk ids kept for sync/status; older entries only matter for interrupted long imports
 
 
+def _raw_lm(text: Optional[str]) -> Optional[int]:
+    """lastModifiedTime of a verbatim (unmodelled) row, or None."""
+    try:
+        return iso_to_ms(json.loads(text)["data"]["metadata"]["lastModifiedTime"])
+    except (KeyError, TypeError, ValueError, AttributeError, Fallback):
+        return None
+
+
 class SqliteStore:
     """Plain database access. Callers serialise access (the receiver holds its store lock)."""
 
@@ -467,6 +475,7 @@ class SqliteStore:
             raise RuntimeError("not a health-sync database")
         self.db.executescript(SCHEMA)
         self._ensure_unique_diagnostics()
+        self._ensure_audit_columns()
         self.db.executemany("INSERT OR IGNORE INTO kinds(id, name) VALUES (?, ?)", KIND_NAMES.items())
         self._src_cache: dict[tuple, int] = {}
         self._in_txn = False
@@ -583,21 +592,89 @@ class SqliteStore:
 
     def ingest(self, records: list[dict], now: datetime) -> tuple[list[dict], int, dict]:
         """Insert every record whose id is new. Returns (accepted records, duplicate count, rule counts).
-        Caller owns the transaction. A 56-bit key collision would count as a duplicate (p ~ 1e-7 at 1e5 ids)."""
+        A known id whose record is newer (see ``_is_newer``) replaces the stored row; such updates are not counted here
+        (use ``ingest_counted``). Caller owns the transaction. A 56-bit key collision would count as a duplicate
+        (p ~ 1e-7 at 1e5 ids)."""
+        accepted, duplicates, _updated, rules = self.ingest_counted(records, now)
+        return accepted, duplicates, rules
+
+    def ingest_counted(self, records: list[dict], now: datetime) -> tuple[list[dict], int, int, dict]:
+        """Like ``ingest`` but also returns how many stored records were replaced by a newer version of the same id."""
         now_us = _to_us(now)
         accepted: list[dict] = []
-        duplicates = 0
+        duplicates = updated = 0
         rules: dict[str, int] = {}
         for rec in records:
             key = record_key(rec)
-            if self.has(key_hash(key)):  # cheap id probe first: duplicates never pay for compaction
-                duplicates += 1
+            k = key_hash(key)
+            stored = self._stored_version(k)
+            if stored is None:
+                link = self.insert(compact(rec, key), now_us)
+                if link:
+                    rules[link[0]] = rules.get(link[0], 0) + 1
+                accepted.append(rec)
+            elif self._replace_if_newer(rec, key, stored, now_us):
+                updated += 1
+            else:
+                duplicates += 1  # cheap id/time probe first: unchanged duplicates never pay for compaction
+        return accepted, duplicates, updated, rules
+
+    # -- updates and deletions (Health Connect Changes API)
+    def _stored_version(self, k: int):
+        """None when the id is unknown, else (canon, lm_ms, cv, raw_text): what is needed to tell a newer version."""
+        row = self.db.execute("SELECT canon, s, d, lm, cv, x, kind FROM rec WHERE k=?", (k,)).fetchone()
+        if row is None:
+            return None
+        canon, s, d, lm, cv, x, kind = row
+        if canon is not None:
+            return (canon, None, None, None)  # a mirror stub keeps no values: it can never be compared
+        if kind == RAW_KIND:
+            return (None, _raw_lm(x), None, x)
+        return (None, s + (d or 0) + lm if lm is not None and s is not None else None, cv or 0, None)
+
+    @staticmethod
+    def _incoming_lm(rec: dict) -> Optional[int]:
+        try:
+            return iso_to_ms(rec["data"]["metadata"]["lastModifiedTime"])
+        except (KeyError, TypeError, ValueError, AttributeError, Fallback):
+            return None
+
+    def _replace_if_newer(self, rec: dict, key: str, stored, now_us: int) -> bool:
+        canon, stored_lm, stored_cv, stored_raw = stored
+        if canon is not None:
+            return False
+        incoming_lm = self._incoming_lm(rec)
+        if incoming_lm is None or stored_lm is None or incoming_lm < stored_lm:
+            return False
+        row = compact(rec, key)
+        if row.kind == RAW_KIND:
+            if stored_raw is None or row.raw == stored_raw:
+                return False  # the shape changed to something unmodelled, or nothing changed
+            newer = incoming_lm > stored_lm
+        else:
+            newer = incoming_lm > stored_lm or (row.cv or 0) > (stored_cv or 0)
+        if not newer:
+            return False
+        # Replace the row; mirror stubs that pointed at it keep pointing at the same key.
+        self.db.execute("DELETE FROM rec WHERE k=?", (row.k,))
+        link = self.insert(row, now_us)
+        if link and link[0] == "dup" and link[1] != row.k:  # the new version is itself a mirror: hand over its stubs
+            self.db.execute("UPDATE rec SET canon=? WHERE canon=?", (link[1], row.k))
+        return True
+
+    def delete_ids(self, ids: list[str]) -> tuple[int, int]:
+        """Remove records deleted in Health Connect. Returns (deleted, unknown). Mirror stubs that pointed at a deleted
+        record go with it (their values were dropped when they were folded, so nothing could be shown for them)."""
+        deleted = missing = 0
+        for rid in ids:
+            k = key_hash(str(rid))
+            if self.db.execute("SELECT 1 FROM rec WHERE k=?", (k,)).fetchone() is None:
+                missing += 1
                 continue
-            link = self.insert(compact(rec, key), now_us)
-            if link:
-                rules[link[0]] = rules.get(link[0], 0) + 1
-            accepted.append(rec)
-        return accepted, duplicates, rules
+            self.db.execute("DELETE FROM rec WHERE canon=?", (k,))
+            self.db.execute("DELETE FROM rec WHERE k=?", (k,))
+            deleted += 1
+        return deleted, missing
 
     def _same_key_rows(self, row: Row) -> list[tuple]:
         return self.db.execute(
@@ -653,11 +730,18 @@ class SqliteStore:
 
     def add_audit(self, audit: dict) -> None:
         self.db.execute(
-            "INSERT INTO sync_audit(ts, chunk_id, chunk_start, chunk_end, received, accepted, duplicates, complete) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sync_audit(ts, chunk_id, chunk_start, chunk_end, received, accepted, duplicates, complete, updated, deleted) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (audit.get("timestamp"), audit.get("chunk_id"), audit.get("chunk_start"), audit.get("chunk_end"),
              audit.get("received"), audit.get("accepted"), audit.get("duplicates"),
-             1 if audit.get("complete") else 0))
+             1 if audit.get("complete") else 0, audit.get("updated", 0), audit.get("deleted", 0)))
+
+    def _ensure_audit_columns(self) -> None:
+        """Databases created before update/delete support have no such columns: add them once (old rows read 0)."""
+        have = {row[1] for row in self.db.execute("PRAGMA table_info(sync_audit)")}
+        for column in ("updated", "deleted"):
+            if column not in have:
+                self.db.execute(f"ALTER TABLE sync_audit ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
 
     def _ensure_unique_diagnostics(self) -> None:
         """One row per event_id. Databases created before this rule may hold duplicates (the app used to upload the same

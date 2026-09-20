@@ -6,6 +6,7 @@ Serves the endpoints the app talks to (the API contract is in the repository REA
     GET  /api/health/config              public
     GET  /api/health/sync/status         authenticated
     POST /api/health/sync                authenticated
+    POST /api/health/changes             authenticated (SQLite store only): updated records and deletions
     POST /api/health/diagnostics         authenticated
     GET  /api/health/diagnostics/status  authenticated
     GET  /healthz, /readyz               local probes (do not publish them)
@@ -61,6 +62,7 @@ log = logging.getLogger("health-receiver")
 MAX_BODY_BYTES = 64 * 1024 * 1024
 MAX_RECORDS = 500
 MAX_EVENTS = 50
+MAX_DELETIONS = 500
 RECORD_FORMAT = 2  # 2 = canonical units only (see the README); the full format 1 is still accepted
 AUTH_CACHE_MAX_ENTRIES = 256
 AUTH_CACHE_MAX_TTL = 60.0
@@ -378,6 +380,27 @@ class HealthApi:
             raise HttpError(400, "records must contain objects")
         return legacy, records
 
+    @staticmethod
+    def _validate_changes(payload: Any) -> tuple[list, list]:
+        """Validate a /changes envelope before anything is written; returns (upserts, deleted_ids)."""
+        if (not isinstance(payload, dict) or payload.get("schema_version") != 1
+                or not isinstance(payload.get("run_id"), str) or not payload["run_id"]):
+            raise HttpError(400, "invalid changes envelope")
+        upserts = payload.get("upserts", [])
+        deleted = payload.get("deleted_ids", [])
+        if not isinstance(upserts, list) or not isinstance(deleted, list):
+            raise HttpError(400, "upserts and deleted_ids must be arrays")
+        if len(upserts) > MAX_RECORDS or len(deleted) > MAX_DELETIONS:
+            raise HttpError(413, "batch exceeds 500 records or 500 deletions")
+        if any(not isinstance(r, dict) for r in upserts):
+            raise HttpError(400, "upserts must contain objects")
+        if any(not isinstance(i, str) or not i or len(i) > 512 for i in deleted):
+            raise HttpError(400, "deleted_ids must contain non-empty strings")
+        return upserts, deleted
+
+    def changes(self, payload: Any) -> dict:
+        raise HttpError(501, "updates and deletions need the SQLite store")
+
     def sync(self, payload: Any) -> dict:
         s = self.store
         legacy, records = self._validate_sync(payload)
@@ -473,6 +496,11 @@ class SqliteHealthApi(HealthApi):
         with self.store.locked():
             return self.db.latest_observation(now, persist=not self.readonly)
 
+    def config(self) -> dict:
+        config = super().config()
+        config["accepts_changes"] = True  # POST /api/health/changes: updated records and deletions
+        return config
+
     def sync_status(self) -> dict:
         with self.store.locked():
             return {"schema_version": 1, "records": self.db.count(), "chunks": self.db.chunks(), "has_more": False}
@@ -483,7 +511,7 @@ class SqliteHealthApi(HealthApi):
         with s.locked():
             self.db.begin()
             try:
-                accepted_records, duplicates, _ = self.db.ingest(records, datetime.now(timezone.utc))
+                accepted_records, duplicates, updated, _ = self.db.ingest_counted(records, datetime.now(timezone.utc))
                 accepted = len(accepted_records)
                 if self.mirror and accepted_records:
                     s.root.mkdir(parents=True, exist_ok=True)
@@ -500,6 +528,8 @@ class SqliteHealthApi(HealthApi):
                          "chunk_end": None if legacy else payload["chunk_end"],
                          "received": len(records), "accepted": accepted, "duplicates": duplicates,
                          "complete": False if legacy else payload.get("complete") is True}
+                if updated:  # keeps the audit line identical to the legacy layout unless something was replaced
+                    audit["updated"] = updated
                 self.db.add_audit(audit)
                 total = self.db.count()
                 self.db.commit()
@@ -516,8 +546,29 @@ class SqliteHealthApi(HealthApi):
                 except OSError:
                     log.exception("JSONL mirror (manifest/audit) failed after commit; SQLite is authoritative")
             return {"schema_version": 1, "ok": True, "accepted": accepted, "duplicates": duplicates,
-                    "received": len(records), "total": total,
+                    "updated": updated, "received": len(records), "total": total,
                     "chunk_id": None if legacy else payload["chunk_id"]}
+
+    def changes(self, payload: Any) -> dict:
+        s = self.store
+        upserts, deleted_ids = self._validate_changes(payload)
+        with s.locked():
+            self.db.begin()
+            try:
+                accepted_records, duplicates, updated, _ = self.db.ingest_counted(upserts, datetime.now(timezone.utc))
+                deleted, missing = self.db.delete_ids(deleted_ids)
+                audit = {"timestamp": datetime.now(timezone.utc).isoformat(), "chunk_id": "changes",
+                         "received": len(upserts), "accepted": len(accepted_records), "duplicates": duplicates,
+                         "updated": updated, "deleted": deleted, "complete": False}
+                self.db.add_audit(audit)
+                total = self.db.count()
+                self.db.commit()
+            except BaseException:
+                self.db.rollback()
+                raise
+            return {"schema_version": 1, "ok": True, "accepted": len(accepted_records), "updated": updated,
+                    "duplicates": duplicates, "received": len(upserts), "deleted": deleted, "missing": missing,
+                    "received_deletions": len(deleted_ids), "total": total}
 
     def diagnostics(self, payload: Any) -> dict:
         events = self._redacted_events(payload)
@@ -627,10 +678,11 @@ ROUTES: dict[str, dict[str, tuple[str, bool]]] = {
     "/api/health/config": {"GET": ("config", False)},
     "/api/health/sync/status": {"GET": ("sync_status", True)},
     "/api/health/sync": {"POST": ("sync", True)},
+    "/api/health/changes": {"POST": ("changes", True)},
     "/api/health/diagnostics": {"POST": ("diagnostics", True)},
     "/api/health/diagnostics/status": {"GET": ("diagnostics_status", True)},
 }
-WRITE_ACTIONS = {"sync", "diagnostics"}
+WRITE_ACTIONS = {"sync", "diagnostics", "changes"}
 
 
 class Handler(BaseHTTPRequestHandler):

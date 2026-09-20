@@ -350,6 +350,12 @@ class ApiParityTests(unittest.TestCase):
         if method == "config":  # history_end is "now": compare everything else, require it to be a timestamp
             for out in outs:
                 self.assertRegex(out[1].pop("history_end"), r"^\d{4}-\d\d-\d\dT.*Z$")
+            self.assertNotIn("accepts_changes", outs[0][1])  # only the SQLite store can apply updates and deletions
+            self.assertIs(outs[1][1].pop("accepts_changes"), True)
+        if method == "sync":  # the SQLite API adds a counter for replaced records; nothing is replaced in these sequences
+            for out in outs[1:]:
+                if out[0] == "ok":
+                    self.assertEqual(out[1].pop("updated"), 0)
         self.assertEqual(outs[0], outs[1], (method, args))
         return outs[0]
 
