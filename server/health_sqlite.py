@@ -444,6 +444,7 @@ CREATE VIEW IF NOT EXISTS daily_totals AS
 """
 
 DIAG_FIELDS = ("event_id", "timestamp", "phase", "message", "exception_type", "stack_trace")
+MAX_CHUNKS = 200  # newest chunk ids kept for sync/status; older entries only matter for interrupted long imports
 
 
 class SqliteStore:
@@ -464,6 +465,7 @@ class SqliteStore:
         elif self.db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
             raise RuntimeError("not a health-sync database")
         self.db.executescript(SCHEMA)
+        self._ensure_unique_diagnostics()
         self.db.executemany("INSERT OR IGNORE INTO kinds(id, name) VALUES (?, ?)", KIND_NAMES.items())
         self._src_cache: dict[tuple, int] = {}
         self._in_txn = False
@@ -644,6 +646,9 @@ class SqliteStore:
         self.db.execute("INSERT INTO chunks(chunk_id, doc) VALUES (?, ?) "
                         "ON CONFLICT(chunk_id) DO UPDATE SET doc=excluded.doc",
                         (chunk_id, json.dumps(doc, ensure_ascii=False, sort_keys=True)))
+        # Ids start with the month and an ISO start time, so they sort chronologically: keep only the newest ones.
+        self.db.execute("DELETE FROM chunks WHERE chunk_id NOT IN (SELECT chunk_id FROM chunks ORDER BY chunk_id DESC LIMIT ?)",
+                        (MAX_CHUNKS,))
 
     def add_audit(self, audit: dict) -> None:
         self.db.execute(
@@ -653,9 +658,25 @@ class SqliteStore:
              audit.get("received"), audit.get("accepted"), audit.get("duplicates"),
              1 if audit.get("complete") else 0))
 
+    def _ensure_unique_diagnostics(self) -> None:
+        """One row per event_id. Databases created before this rule may hold duplicates (the app used to upload the same
+        outbox several times): remove them once, keeping the first copy, then enforce uniqueness with an index."""
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='ux_diag_event'").fetchone():
+            return
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute("DELETE FROM diagnostics WHERE event_id IS NOT NULL AND seq NOT IN "
+                            "(SELECT MIN(seq) FROM diagnostics WHERE event_id IS NOT NULL GROUP BY event_id)")
+            self.db.execute("CREATE UNIQUE INDEX ux_diag_event ON diagnostics(event_id) WHERE event_id IS NOT NULL")
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
     def add_diagnostics(self, events: list[dict]) -> None:
+        """Events whose event_id is already stored are ignored (a retried upload must not create duplicates)."""
         self.db.executemany(
-            f"INSERT INTO diagnostics({','.join(DIAG_FIELDS)}) VALUES ({','.join('?' * len(DIAG_FIELDS))})",
+            f"INSERT OR IGNORE INTO diagnostics({','.join(DIAG_FIELDS)}) VALUES ({','.join('?' * len(DIAG_FIELDS))})",
             [tuple(e.get(f) for f in DIAG_FIELDS) for e in events])
 
     def diagnostics_status(self) -> tuple[int, Optional[str]]:

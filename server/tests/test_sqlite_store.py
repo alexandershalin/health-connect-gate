@@ -508,5 +508,44 @@ class StoreBehaviourTests(Base):
         self.assertIn("refusing to start", out.stderr)
 
 
+class DiagnosticsAndChunksTests(Base):
+    def test_duplicate_event_ids_are_stored_once(self):
+        ev = {"event_id": "e1", "timestamp": "2026-01-01T00:00:00Z", "phase": "sync", "message": "m"}
+        first = self.api.diagnostics({"events": [ev, {"event_id": "e2", "message": "x"}]})
+        again = self.api.diagnostics({"events": [ev]})                    # the app retried the same outbox
+        self.assertEqual((first["accepted"], again["accepted"]), (2, 1))  # the response contract is unchanged
+        self.assertEqual(self.api.diagnostics_status()["count"], 2)
+        self.api.diagnostics({"events": [{"message": "no id"}, {"message": "no id"}]})   # no id -> cannot be de-duplicated
+        self.assertEqual(self.api.diagnostics_status()["count"], 4)
+
+    def test_duplicates_from_an_old_database_are_removed_when_it_is_opened(self):
+        self.db.db.execute("DROP INDEX ux_diag_event")                    # what a pre-rule database looks like
+        rows = [("dup", "t1"), ("dup", "t2"), ("dup", "t3"), ("solo", "t4")]
+        self.db.db.executemany("INSERT INTO diagnostics(event_id, timestamp) VALUES (?, ?)", rows)
+        self.db.close()
+        db2 = hs.SqliteStore(self.db_path)
+        self.addCleanup(db2.close)
+        self.assertEqual(db2.db.execute("SELECT event_id, timestamp FROM diagnostics ORDER BY seq").fetchall(),
+                         [("dup", "t1"), ("solo", "t4")])                # the first copy of each id survives
+        self.assertIsNotNone(db2.db.execute("SELECT 1 FROM sqlite_master WHERE name='ux_diag_event'").fetchone())
+        db2.begin(); db2.add_diagnostics([{"event_id": "dup", "timestamp": "later"}]); db2.commit()
+        self.assertEqual(db2.diagnostics_status()[0], 2)
+
+    def test_chunk_list_is_bounded_to_the_newest_entries(self):
+        self.db.begin()
+        for i in range(hs.MAX_CHUNKS + 50):
+            self.db.set_chunk(f"2026-01|2026-01-01T00:{i // 60:02d}:{i % 60:02d}Z|open", {"complete": True, "n": i})
+        self.db.commit()
+        chunks = self.db.chunks()
+        self.assertEqual(len(chunks), hs.MAX_CHUNKS)
+        self.assertIn(f"2026-01|2026-01-01T00:{(hs.MAX_CHUNKS + 49) // 60:02d}:{(hs.MAX_CHUNKS + 49) % 60:02d}Z|open", chunks)
+        self.assertNotIn("2026-01|2026-01-01T00:00:00Z|open", chunks)
+
+    def test_a_stable_open_chunk_id_is_overwritten_not_added(self):
+        for _ in range(3):
+            self.api.sync(envelope([], "2026-09|2026-09-20T07:30:00Z|open", complete=True))
+        self.assertEqual(list(self.api.sync_status()["chunks"]), ["2026-09|2026-09-20T07:30:00Z|open"])
+
+
 if __name__ == "__main__":
     unittest.main()
