@@ -16,8 +16,10 @@ android {
         applicationId = "com.bishop.healthconnectgate"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // versionCode must always increase and never fall below a build that was ever installed on a device:
+        // Android refuses to "downgrade" (0.1 shipped as versionCode 1, but a test build with versionCode 2 existed).
+        versionCode = 3
+        versionName = "0.2"
         buildConfigField("String", "DEFAULT_GATEWAY_DOMAIN", "\"$defaultGatewayDomain\"")
     }
 

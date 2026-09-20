@@ -315,6 +315,22 @@ repository (`GATE_PRIVATE_PATTERNS`).
 [MIT](LICENSE) © 2026 Alexander Shalin. The app bundles third-party libraries under Apache-2.0, BSD-3-Clause and MIT; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The server uses only the Python standard library.
 
+## Troubleshooting
+
+**"App not installed" when installing over another build.** Android never installs a lower `versionCode` over a higher one and never
+installs an APK signed with a different key over an existing app of the same package. Debug builds (built locally) and release builds
+(from GitHub) are signed with different keys, so remove the other build first. Remember that the old copy may be hidden: check other users,
+a work profile or Private Space and the *Uninstall for all users* option in system settings. With a computer and `adb` you can check and clean up:
+
+```
+adb shell pm list users
+adb shell pm list packages -u | grep healthconnectgate     # -u also lists apps uninstalled with "keep data"
+adb uninstall --user <id> com.bishop.healthconnectgate     # once per user id that still has it
+```
+
+Compare the file you downloaded with the published checksum (`sha256sum -c HealthConnectGate-<version>.apk.sha256`) if an installation fails
+for no visible reason.
+
 ## Limitations
 
 * Tokens are stored unencrypted in the app's private storage.
