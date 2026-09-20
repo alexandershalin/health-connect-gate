@@ -1,0 +1,33 @@
+# systemd unit for the receiver. Adjust the paths and the user; see "Self-hosted deployment" in the README.
+#   sudo useradd --system --home /var/lib/health-connect-gate --shell /usr/sbin/nologin healthgate
+#   sudo cp health-connect-gate-receiver.service /etc/systemd/system/ && sudo systemctl enable --now health-connect-gate-receiver
+[Unit]
+Description=Health Connect Gate receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=healthgate
+Group=healthgate
+WorkingDirectory=/opt/health-connect-gate/server
+ExecStart=/usr/bin/python3 /opt/health-connect-gate/server/receiver.py
+Environment=PYTHONUNBUFFERED=1
+Environment=HEALTH_RECEIVER_HOST=127.0.0.1
+Environment=HEALTH_RECEIVER_PORT=9120
+Environment=HEALTH_RECEIVER_ROOT=/var/lib/health-connect-gate
+Environment=HEALTH_RECEIVER_LOCK=/run/health-connect-gate/receiver.lock
+# Auth backend: the Hermes Agent dashboard. Every request is checked against this URL (200 = allowed).
+Environment=HEALTH_RECEIVER_AUTH_URL=http://127.0.0.1:9119/api/auth/me
+StateDirectory=health-connect-gate
+RuntimeDirectory=health-connect-gate
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
