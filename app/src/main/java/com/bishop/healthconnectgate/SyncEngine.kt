@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Duration
@@ -18,9 +19,13 @@ import java.time.YearMonth
 import java.time.ZoneOffset
 import java.util.Base64
 import java.util.UUID
+import java.util.zip.GZIPOutputStream
 import kotlin.reflect.KClass
 
-internal data class SyncConfig(val historyStart: Instant, val historyEnd: Instant?, val chunkMonths: Int, val batchSize: Int) {
+internal data class SyncConfig(
+    val historyStart: Instant, val historyEnd: Instant?, val chunkMonths: Int, val batchSize: Int,
+    val acceptsGzip: Boolean = false, val recordFormat: Int = 1
+) {
     val fingerprint: String get() = "$historyStart|${historyEnd ?: "now"}|$chunkMonths|$batchSize"
 }
 /** Thrown when the stored session is unusable; retrying without a new sign-in can never succeed. */
@@ -37,6 +42,8 @@ internal class SyncEngine(
     private val prefs = context.getSharedPreferences("bridge_sync", Context.MODE_PRIVATE)
     private val settings = Settings(context)
     private val status = SyncStatusStore(context)
+    private var acceptsGzip = false
+    private var recordFormat = 1
     private val lock = SyncLock(context)
     private val diagnostics = DiagnosticLogger(context, domainProvider)
 
@@ -49,6 +56,8 @@ internal class SyncEngine(
             if (!settings.isSignedIn) throw AuthRequiredException("Not signed in")
             phase = "fetch_config"
             val config = fetchConfig()
+            acceptsGzip = config.acceptsGzip
+            recordFormat = config.recordFormat
             val runStart = Instant.now()
             val end = minOf(config.historyEnd ?: runStart, runStart)
             val start = minOf(config.historyStart, end)
@@ -123,7 +132,10 @@ internal class SyncEngine(
         val start = runCatching { Instant.parse(json.getString("history_start")) }.getOrElse { throw IllegalStateException("Invalid server history_start") }
         val end = json.optString("history_end", "").takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it) }.getOrElse { throw IllegalStateException("Invalid server history_end") } }
         if (end != null && !end.isAfter(start)) throw IllegalStateException("Server history_end must be after history_start")
-        return SyncConfig(start, end, json.optInt("chunk_months", 1).coerceIn(1, 12), json.optInt("batch_size", 250).coerceIn(25, 500))
+        return SyncConfig(
+            start, end, json.optInt("chunk_months", 1).coerceIn(1, 12), json.optInt("batch_size", 250).coerceIn(25, 500),
+            // Older servers do not send these: then the app keeps the plain, full format they understand.
+            acceptsGzip = json.optBoolean("accepts_gzip", false), recordFormat = json.optInt("record_format", 1))
     }
 
     private suspend fun fetchServerCompletedChunks(): Set<String> {
@@ -149,13 +161,16 @@ internal class SyncEngine(
 
     private suspend fun sendBatch(runId: String, chunkId: String, start: Instant, end: Instant, records: List<Record>) {
         val array = JSONArray()
-        records.forEach { array.put(JSONObject(RecordCatalog.recordJson(it))) }
-        val body = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
-            .put("chunk_start", start.toString()).put("chunk_end", end.toString()).put("records", array).toString()
-        var response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null))
+        val explicit = recordFormat >= RecordJson.FORMAT
+        records.forEach { array.put((if (explicit) RecordJson.encode(it) else null) ?: JSONObject(RecordCatalog.recordJson(it))) }
+        val envelope = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
+            .put("chunk_start", start.toString()).put("chunk_end", end.toString()).put("records", array)
+        if (explicit) envelope.put("record_format", RecordJson.FORMAT)
+        val body = envelope.toString()
+        var response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip)
         if (response.optBoolean("unauthorized", false)) {
             if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
-            response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null))
+            response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip)
         }
         if (!response.optBoolean("ok", true) && response.optInt("accepted", -1) < 0) throw IllegalStateException("Sync rejected")
     }
@@ -180,12 +195,18 @@ internal class SyncEngine(
         }.getOrDefault(false)
     }
 
-    private fun request(method: String, path: String, body: String?, token: String?): JSONObject {
+    private fun request(method: String, path: String, body: String?, token: String?, compress: Boolean = false): JSONObject {
         val c = (URL("https://${domainProvider()}$path").openConnection() as HttpURLConnection)
         c.requestMethod = method; c.connectTimeout = 15000; c.readTimeout = 30000
         c.setRequestProperty("Accept", "application/json")
         if (!token.isNullOrBlank()) c.setRequestProperty("Authorization", "Bearer $token")
-        if (body != null) { c.doOutput = true; c.setRequestProperty("Content-Type", "application/json"); c.outputStream.use { it.write(body.toByteArray()) } }
+        if (body != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            val bytes = body.toByteArray()
+            if (compress && bytes.size > GZIP_MIN_BYTES) { c.setRequestProperty("Content-Encoding", "gzip"); c.outputStream.use { it.write(gzip(bytes)) } }
+            else c.outputStream.use { it.write(bytes) }
+        }
         val code = c.responseCode
         val stream = if (code in 200..299) c.inputStream else c.errorStream
         val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
@@ -194,6 +215,14 @@ internal class SyncEngine(
         if (code !in 200..299) throw HttpStatusException(code)
         return JSONObject(text)
     }
+}
+
+private const val GZIP_MIN_BYTES = 1024
+
+internal fun gzip(bytes: ByteArray): ByteArray {
+    val out = ByteArrayOutputStream(bytes.size / 8 + 64)
+    GZIPOutputStream(out).use { it.write(bytes) }
+    return out.toByteArray()
 }
 
 internal class SyncLock(context: Context) {
