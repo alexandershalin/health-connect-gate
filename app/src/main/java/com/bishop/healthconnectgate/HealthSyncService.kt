@@ -34,13 +34,13 @@ class HealthSyncService : Service() {
                 }.run()
             } catch (e: Throwable) {
                 DiagnosticLogger(applicationContext) { domain }.record("service_sync", "HealthSyncService failure", e)
-                update("Sync failed: ${e.message ?: "unknown error"}")
+                SyncStatusStore(applicationContext).failure(ErrorText.describe(e))
+                update(ErrorText.describe(e))
             } finally { stopSelfResult(startId) }
         }
         return START_NOT_STICKY
     }
     private fun update(text: String) {
-        getSharedPreferences("bridge_sync", MODE_PRIVATE).edit().putString("status", text).apply()
         notificationManager.notify(NOTIFICATION_ID, notification(text))
     }
     private fun notification(text: String): Notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(this).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build()

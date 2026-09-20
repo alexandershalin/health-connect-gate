@@ -35,6 +35,8 @@ internal class SyncEngine(
     private val message: (String) -> Unit
 ) {
     private val prefs = context.getSharedPreferences("bridge_sync", Context.MODE_PRIVATE)
+    private val settings = Settings(context)
+    private val status = SyncStatusStore(context)
     private val lock = SyncLock(context)
     private val diagnostics = DiagnosticLogger(context, domainProvider)
 
@@ -43,6 +45,8 @@ internal class SyncEngine(
         if (!lock.tryAcquire()) return@withContext "Another synchronization is already running"
         var phase = "acquire_lock"
         try {
+            status.begin()
+            if (!settings.isSignedIn) throw AuthRequiredException("Not signed in")
             phase = "fetch_config"
             val config = fetchConfig()
             val runStart = Instant.now()
@@ -62,10 +66,15 @@ internal class SyncEngine(
             message("Preparing ${start} to ${end}")
             val grantedPermissions = client.permissionController.getGrantedPermissions()
             diagnostics.record("permissions", "Health Connect reports ${grantedPermissions.size} granted permissions")
-            if (grantedPermissions.isEmpty()) throw IllegalStateException("No Health Connect read permissions granted")
+            val types = DataSelection.typesFor(settings.selectedCategoryIds)
+            if (types.none { HealthPermission.getReadPermission(it) in grantedPermissions }) throw NoPermissionException()
             // The server manifest is the source of truth. Never let a stale local cursor skip a server-assigned range.
             var month = YearMonth.from(start.atZone(ZoneOffset.UTC))
             val lastMonth = YearMonth.from(end.minusNanos(1).atZone(ZoneOffset.UTC))
+            var totalPeriods = 0
+            run { var m = month; while (!m.isAfter(lastMonth)) { totalPeriods++; m = m.plusMonths(config.chunkMonths.toLong()) } }
+            var periodsDone = 0
+            var runRecords = 0
             while (!month.isAfter(lastMonth)) {
                 val chunkStart = maxOf(start, month.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant())
                 val chunkEnd = minOf(end, month.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant())
@@ -74,12 +83,14 @@ internal class SyncEngine(
                 val open = Duration.between(chunkEnd, runStart) < Duration.ofHours(24)
                 val chunkId = if (open) "${month}|${chunkStart}|open" else "${month}|${chunkStart}|${chunkEnd}"
                 if (!open && (chunkId in serverCompletedChunks || prefs.getString("completed:$chunkId", null) == "1")) {
+                    periodsDone++
                     month = month.plusMonths(config.chunkMonths.toLong()); continue
                 }
                 message("Reading ${month}")
+                status.progress("$month", periodsDone, totalPeriods, runRecords)
                 phase = "read_records:${month}"
                 var total = 0
-                for (type in RecordCatalog.types) {
+                for (type in types) {
                     val permission = HealthPermission.getReadPermission(type)
                     if (permission !in grantedPermissions) continue
                     readPages(type, TimeRangeFilter.between(chunkStart, chunkEnd), config.batchSize) { records ->
@@ -90,14 +101,19 @@ internal class SyncEngine(
                 }
                 completeChunk(runId, chunkId, chunkStart, chunkEnd)
                 message("${month} confirmed by server: $total records read")
+                runRecords += total
+                periodsDone++
+                status.progress("$month", periodsDone, totalPeriods, runRecords)
                 prefs.edit().putString("completed:$chunkId", "1").putString("next_month", month.plusMonths(config.chunkMonths.toLong()).toString()).apply()
                 month = month.plusMonths(config.chunkMonths.toLong())
             }
             message("Completed")
+            status.success(runRecords)
             prefs.edit().remove("run_id").apply()
             "Completed"
         } catch (error: Throwable) {
             diagnostics.record(phase, "SyncEngine failure", error)
+            if (error !is kotlinx.coroutines.CancellationException) status.failure(ErrorText.describe(error))
             throw error
         } finally { lock.release() }
     }
@@ -175,7 +191,7 @@ internal class SyncEngine(
         val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
         c.disconnect()
         if (code == 401) return JSONObject().put("unauthorized", true)
-        if (code !in 200..299) throw IllegalStateException("Hermes HTTP $code")
+        if (code !in 200..299) throw HttpStatusException(code)
         return JSONObject(text)
     }
 }
@@ -188,31 +204,8 @@ internal class SyncLock(context: Context) {
     fun release() { runCatching { fileLock?.release() }; fileLock = null; runCatching { channel?.close() }; channel = null }
 }
 
-// MindfulnessSessionRecord is still flagged experimental in Health Connect 1.1.0; opting in keeps those records syncing.
-@OptIn(androidx.health.connect.client.feature.ExperimentalMindfulnessSessionApi::class)
 internal object RecordCatalog {
-    val types: List<KClass<out Record>> = listOf(
-        androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class, androidx.health.connect.client.records.BasalBodyTemperatureRecord::class,
-        androidx.health.connect.client.records.BasalMetabolicRateRecord::class, androidx.health.connect.client.records.BloodGlucoseRecord::class,
-        androidx.health.connect.client.records.BloodPressureRecord::class, androidx.health.connect.client.records.BodyFatRecord::class,
-        androidx.health.connect.client.records.BodyTemperatureRecord::class, androidx.health.connect.client.records.BodyWaterMassRecord::class,
-        androidx.health.connect.client.records.BoneMassRecord::class, androidx.health.connect.client.records.CervicalMucusRecord::class,
-        androidx.health.connect.client.records.CyclingPedalingCadenceRecord::class, androidx.health.connect.client.records.DistanceRecord::class,
-        androidx.health.connect.client.records.ElevationGainedRecord::class, androidx.health.connect.client.records.ExerciseSessionRecord::class,
-        androidx.health.connect.client.records.FloorsClimbedRecord::class, androidx.health.connect.client.records.HeartRateRecord::class,
-        androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord::class, androidx.health.connect.client.records.HeightRecord::class,
-        androidx.health.connect.client.records.HydrationRecord::class, androidx.health.connect.client.records.IntermenstrualBleedingRecord::class,
-        androidx.health.connect.client.records.LeanBodyMassRecord::class, androidx.health.connect.client.records.MenstruationFlowRecord::class,
-        androidx.health.connect.client.records.MenstruationPeriodRecord::class, androidx.health.connect.client.records.MindfulnessSessionRecord::class,
-        androidx.health.connect.client.records.NutritionRecord::class, androidx.health.connect.client.records.OvulationTestRecord::class,
-        androidx.health.connect.client.records.OxygenSaturationRecord::class, androidx.health.connect.client.records.PlannedExerciseSessionRecord::class,
-        androidx.health.connect.client.records.PowerRecord::class, androidx.health.connect.client.records.RespiratoryRateRecord::class,
-        androidx.health.connect.client.records.RestingHeartRateRecord::class, androidx.health.connect.client.records.SexualActivityRecord::class,
-        androidx.health.connect.client.records.SkinTemperatureRecord::class, androidx.health.connect.client.records.SleepSessionRecord::class,
-        androidx.health.connect.client.records.SpeedRecord::class, androidx.health.connect.client.records.StepsCadenceRecord::class,
-        androidx.health.connect.client.records.StepsRecord::class, androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class,
-        androidx.health.connect.client.records.Vo2MaxRecord::class, androidx.health.connect.client.records.WeightRecord::class,
-        androidx.health.connect.client.records.WheelchairPushesRecord::class)
+    val types: List<KClass<out Record>> = DataCategory.entries.flatMap { it.types }
     fun recordJson(record: Record): String = ReflectiveJson.encodeRecord(record)
 }
 

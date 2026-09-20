@@ -33,10 +33,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             Result.success()
         } catch (error: AuthRequiredException) {
             DiagnosticLogger(applicationContext) { domain }.record("worker_sync", "Sign-in required; not retrying", error)
+            SyncStatusStore(applicationContext).failure(ErrorText.describe(error))
             Result.failure()
         } catch (error: Throwable) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             DiagnosticLogger(applicationContext) { domain }.record("worker_sync", "SyncWorker failure", error)
+            SyncStatusStore(applicationContext).failure(ErrorText.describe(error))
             Result.retry()
         }
     }
@@ -44,6 +46,8 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     private fun notification(text: String): Notification { val manager = applicationContext.getSystemService(NotificationManager::class.java); if (android.os.Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, "Health synchronization", NotificationManager.IMPORTANCE_LOW)); return if (android.os.Build.VERSION.SDK_INT >= 26) Notification.Builder(applicationContext, CHANNEL).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(applicationContext).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() }
     private fun createForegroundInfo(text: String) = if (android.os.Build.VERSION.SDK_INT >= 34) ForegroundInfo(ID, notification(text), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH) else ForegroundInfo(ID, notification(text))
     companion object { const val UNIQUE_NAME = "health-connect-periodic-sync"; private const val CHANNEL = "health_sync"; private const val ID = 4102
+        fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME) }
+
         /** Hourly sync, but only with a network connection and a battery that is not low; retries back off exponentially. */
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)

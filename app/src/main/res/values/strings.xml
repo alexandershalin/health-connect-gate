@@ -1,1 +1,61 @@
-<resources><string name="app_name">Health Connect Gate</string></resources>
+<resources>
+    <string name="app_name">Health Connect Gate</string>
+
+    <!-- Data categories -->
+    <string name="cat_activity">Activity</string>
+    <string name="cat_activity_summary">Steps, distance, calories, speed, exercise, floors, elevation, power, cadence, wheelchair pushes</string>
+    <string name="cat_vitals">Heart and vitals</string>
+    <string name="cat_vitals_summary">Heart rate, HRV, blood pressure, oxygen, breathing, temperatures, blood glucose, VO2 max</string>
+    <string name="cat_body">Body measurements</string>
+    <string name="cat_body_summary">Weight, height, body fat, lean and bone mass, body water, metabolic rate</string>
+    <string name="cat_sleep">Sleep and mindfulness</string>
+    <string name="cat_sleep_summary">Sleep sessions and stages, mindfulness sessions</string>
+    <string name="cat_nutrition">Nutrition and hydration</string>
+    <string name="cat_nutrition_summary">Meals, nutrients, water intake</string>
+    <string name="cat_cycle">Cycle tracking</string>
+    <string name="cat_cycle_summary">Menstruation, ovulation tests, cervical mucus, intermenstrual bleeding</string>
+    <string name="cat_sexual">Sexual activity</string>
+    <string name="cat_sexual_summary">Sexual activity records</string>
+
+    <!-- Data types screen -->
+    <string name="types_title">Data to synchronize</string>
+    <string name="types_intro">Choose which kinds of data are sent to your server. Categories marked sensitive are off until you turn them on. Only the chosen kinds are requested from Health Connect and read.</string>
+    <string name="sensitive_suffix">%1$s (sensitive)</string>
+    <string name="types_revoke_note">Turning a category off stops synchronizing it. To take the permission away completely, use the Health Connect settings.</string>
+    <string name="open_health_connect_settings">Open Health Connect settings</string>
+    <string name="done">Done</string>
+
+    <!-- Main screen -->
+    <string name="version_line">Version %1$s</string>
+    <string name="status_server">Server: %1$s (%2$s)</string>
+    <string name="status_server_unset">Server: not set</string>
+    <string name="signed_in">signed in</string>
+    <string name="signed_out">signed out</string>
+    <string name="status_sync_idle">Synchronization: idle</string>
+    <string name="status_sync_running">Synchronization: running – %1$s (%2$d of %3$d periods, %4$d records sent)</string>
+    <string name="status_sync_running_short">Synchronization: running</string>
+    <string name="status_last_success">Last successful sync: %1$s, %2$d records</string>
+    <string name="status_never">Last successful sync: never</string>
+    <string name="status_last_error">Problem: %1$s</string>
+    <string name="status_next_run">Next background sync: %1$s</string>
+    <string name="status_next_run_none">Next background sync: not scheduled</string>
+    <string name="status_permissions">Health Connect: %1$d of %2$d selected data types allowed</string>
+    <string name="hint_domain">Server domain, e.g. gateway.example.com</string>
+    <string name="sign_in">Sign in</string>
+    <string name="sign_out">Sign out</string>
+    <string name="choose_data">Choose data to synchronize</string>
+    <string name="grant_access">Grant Health Connect access</string>
+    <string name="sync_now">Sync now</string>
+    <string name="diagnostics_heading">Recent events</string>
+    <string name="sign_out_title">Sign out?</string>
+    <string name="sign_out_message">The sign-in is removed from this phone and background synchronization stops. The server address and your data choices are kept. A session that was already issued stays valid on the server until it expires.</string>
+    <string name="msg_enter_domain">Enter the server domain first.</string>
+    <string name="msg_sign_in_first">Sign in first.</string>
+    <string name="msg_grant_first">Grant Health Connect access for the selected data first.</string>
+    <string name="msg_waiting_signin">Waiting for the sign-in in your browser…</string>
+    <string name="msg_signed_in">Signed in.</string>
+    <string name="msg_signin_error">Sign-in failed. Check the server domain and try again.</string>
+    <string name="msg_signed_out">Signed out.</string>
+    <string name="msg_sync_start_failed">Could not start the synchronization (%1$s).</string>
+    <string name="msg_starting_sync">Starting synchronization…</string>
+</resources>

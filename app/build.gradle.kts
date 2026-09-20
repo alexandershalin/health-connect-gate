@@ -59,6 +59,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig = true }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
@@ -70,4 +71,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
+    testImplementation("junit:junit:4.13.2")
+    // Android's own org.json is a stub in local unit tests; the real implementation makes JSON code testable on the JVM.
+    testImplementation("org.json:json:20250517")
 }
