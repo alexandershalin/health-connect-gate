@@ -38,7 +38,7 @@ The main screen shows the server and sign-in state, the last success, the last p
 ## API contract
 
 All bodies are JSON; every URL is `https://<domain>/…`. Authenticated endpoints expect `Authorization: Bearer <access token>`.
-The app waits up to 15 s to connect and 30 s for an answer.
+The app waits up to 15 s to connect and 30 s for an answer; for a batch of records (`POST /api/health/sync` with records, `POST /api/health/changes`) it waits up to **90 s**.
 
 | Method and path | Auth | Purpose |
 |---|---|---|
@@ -123,7 +123,7 @@ At most 50 events; `exception_type` and `stack_trace` are optional. Treat the te
 ### Checklist for a compatible backend
 
 HTTPS on 443 · the endpoints above with PKCE S256 and single-use codes · `401` (not `403`/`5xx`) for a missing or expired token · idempotent uploads and the
-`complete` handshake · an answer within 30 s.
+`complete` handshake · an answer within 30 s (within 90 s for a batch of records).
 
 ## Run the receiver
 
@@ -184,7 +184,7 @@ deletions (`accepts_changes` is then not announced).
 Publish one domain and route these exact paths to the receiver, everything else (including `/auth/native/*`) to the sign-in service:
 `/api/health/config`, `/sync`, `/sync/status`, `/changes`, `/diagnostics`, `/diagnostics/status` (all under `/api/health/`). Examples checked with `nginx -t` and
 `caddy validate`: [`nginx.conf.example`](server/deploy/nginx.conf.example), [`Caddyfile.example`](server/deploy/Caddyfile.example). Never route `/healthz` or
-`/readyz` publicly. Allow bodies of at least 64 MB and read timeouts of 60 s or more.
+`/readyz` publicly. Allow bodies of at least 64 MB and read timeouts of 120 s or more (the app waits up to 90 s for a batch of records).
 
 ### Hermes mode
 

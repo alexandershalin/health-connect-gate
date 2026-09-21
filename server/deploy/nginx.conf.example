@@ -9,7 +9,7 @@ server {
     ssl_certificate_key /etc/ssl/private/gateway.example.com.key;
 
     client_max_body_size 64m;   # the receiver accepts request bodies up to 64 MB (a batch is at most 500 records)
-    proxy_read_timeout   60s;   # the app gives up after 30 s
+    proxy_read_timeout   120s;  # the app waits up to 90 s for a batch of records (30 s for the other requests)
     proxy_http_version   1.1;
     proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-For   $remote_addr;
