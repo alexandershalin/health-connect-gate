@@ -91,9 +91,7 @@ jobs:
           NAME: ${{ steps.ver.outputs.name }}
           FILE: ${{ steps.apk.outputs.file }}
         run: |
-          flags=""
-          case "$NAME" in 0.*) flags="--prerelease" ;; esac
-          gh release create "$TAG" "$FILE" "$FILE.sha256" --verify-tag $flags \
+          gh release create "$TAG" "$FILE" "$FILE.sha256" --verify-tag --latest \
             --title "Health Connect Gate $NAME" --notes-file release-notes.md
 
       - name: Keep the APK as a workflow artifact
