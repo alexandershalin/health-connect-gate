@@ -235,7 +235,7 @@ Android 8.0+ with Health Connect (built in from Android 14). JDK 17 and the Andr
 cd server && python3 -m unittest discover -s tests && python3 tests/smoke_write.py   # again with HEALTH_RECEIVER_STORE=sqlite
 ```
 
-The repository has no default server address; to pre-fill the domain in your own builds set `gate.defaultDomain=gateway.example.com` in
+Planned work is listed in [ROADMAP.md](ROADMAP.md). The repository has no default server address; to pre-fill the domain in your own builds set `gate.defaultDomain=gateway.example.com` in
 `~/.gradle/gradle.properties` or pass `-Pgate.defaultDomain=…`.
 
 **Releases** are built by GitHub Actions and signed with the project key: pushing a tag `v<versionName>` (equal to `versionName` in `app/build.gradle.kts`)
