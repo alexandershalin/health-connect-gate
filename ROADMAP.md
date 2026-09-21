@@ -11,11 +11,14 @@ Ideas for future work, roughly by priority. Nothing here is promised; the [READM
 * **Filter by data origin** (`dataOriginFilter`) so duplicates can be dropped on the phone instead of on the server.
 * **Hint to update** when the server announces a minimum app version.
 * **Instrumented tests and an install check on an emulator in CI** (API 35/36).
+* **Network-aware pause and resume:** wait for the connection to come back (ConnectivityManager callback) instead of ending the run, and an optional "Wi-Fi only" for big imports.
+* **Long imports as a user-initiated data transfer job** (Android 14+), because the periodic worker cannot start a foreground service from the background.
 * **Explicit serialisation for the remaining record types** (13 are explicit, the rest use reflection), then enable R8.
 * Lower priority: Compose/Material 3 and dark theme; `network_security_config` and `dataExtractionRules` (cleartext is already off and backup is disabled, so these are belt and braces).
 
 ## Server
 
+* **Chunk progress on the server:** report, for an incomplete chunk, up to which time each record type is already stored, so a reinstalled app can resume too.
 * **Rate limiting** and a cap on concurrent connections (today: 64 MB body limit, 500 records per request).
 * **Machine-readable contract (OpenAPI) and a conformance test suite** that any third-party backend can run against its own URL.
 * **Observability:** structured (JSON) logs and a Prometheus `/metrics` endpoint.
