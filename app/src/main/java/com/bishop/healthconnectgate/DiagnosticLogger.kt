@@ -50,16 +50,22 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         try { uploadPendingLocked() } finally { uploadGate.unlock() }
     }
 
-    private suspend fun uploadPendingLocked() = withContext(Dispatchers.IO) {
-        val token = prefs.getString("access_token", null)?.takeIf { it.isNotBlank() } ?: return@withContext
+    /** Sends the outbox in batches of [MAX_EVENTS] until it is empty (at most [MAX_ROUNDS] batches per call); stops at the first failure. */
+    private suspend fun uploadPendingLocked() {
+        repeat(MAX_ROUNDS) { if (!uploadOnce()) return }
+    }
+
+    /** True when a batch was sent and more may follow. */
+    private suspend fun uploadOnce(): Boolean = withContext(Dispatchers.IO) {
+        val token = prefs.getString("access_token", null)?.takeIf { it.isNotBlank() } ?: return@withContext false
         val pending: List<String> = synchronized(lock) {
             if (!file.exists()) return@synchronized emptyList()
             file.readLines(Charsets.UTF_8).filter { it.isNotBlank() }.take(MAX_EVENTS)
         }
-        if (pending.isEmpty()) return@withContext
+        if (pending.isEmpty()) return@withContext false
         val events = JSONArray()
         pending.forEach { line -> runCatching { events.put(JSONObject(line)) } }
-        if (events.length() == 0) return@withContext
+        if (events.length() == 0) return@withContext false
         try {
             val connection = URL("https://${domainProvider()}/api/health/diagnostics").openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
@@ -73,7 +79,7 @@ internal class DiagnosticLogger(private val context: Context, private val domain
             val code = connection.responseCode
             connection.inputStream?.close()
             connection.disconnect()
-            if (code !in 200..299) return@withContext
+            if (code !in 200..299) return@withContext false
             synchronized(lock) {
                 if (!file.exists()) return@synchronized
                 val remaining = file.readLines(Charsets.UTF_8).drop(pending.size)
@@ -84,8 +90,10 @@ internal class DiagnosticLogger(private val context: Context, private val domain
                     temp.renameTo(file)
                 }
             }
+            pending.size >= MAX_EVENTS
         } catch (_: Exception) {
             // Keep the outbox for a later app start/sync; never create a recursive diagnostic event.
+            false
         }
     }
 
@@ -95,7 +103,7 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         .take(MAX_FIELD_LENGTH)
 
     companion object {
-        private const val MAX_EVENTS = 50; private const val MAX_FIELD_LENGTH = 12000
+        private const val MAX_EVENTS = 50; private const val MAX_ROUNDS = 10; private const val MAX_FIELD_LENGTH = 12000
         // Instances are created all over the app; the file lock and the upload gate must be shared by all of them.
         private val lock = Any()
         private val uploadGate = kotlinx.coroutines.sync.Mutex()

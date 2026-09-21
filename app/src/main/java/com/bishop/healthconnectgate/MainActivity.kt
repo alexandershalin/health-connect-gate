@@ -115,14 +115,19 @@ class MainActivity : ComponentActivity() {
         val server = settings.domain
         lines += if (server.isBlank()) getString(R.string.status_server_unset)
                  else getString(R.string.status_server, server, getString(if (settings.isSignedIn) R.string.signed_in else R.string.signed_out))
-        lines += when (st.state) {
-            SyncState.RUNNING -> if (st.monthsTotal > 0) getString(R.string.status_sync_running, st.detail.ifBlank { "…" }, st.monthsDone, st.monthsTotal, st.recordsThisRun)
-                                 else getString(R.string.status_sync_running_short)
-            else -> getString(R.string.status_sync_idle)
+        val model = StatusModelBuilder.build(st)
+        lines += when (model.line) {
+            SyncLine.RUNNING -> if (model.hasProgress) getString(R.string.status_sync_running, st.detail.ifBlank { "…" }, st.monthsDone, st.monthsTotal, st.recordsThisRun)
+                                else getString(R.string.status_sync_running_short)
+            SyncLine.INTERRUPTED -> if (model.hasProgress) getString(R.string.status_sync_interrupted, st.monthsDone, st.monthsTotal, st.recordsThisRun)
+                                    else getString(R.string.status_sync_interrupted_short)
+            SyncLine.FAILED -> getString(R.string.status_sync_failed)
+            SyncLine.IDLE -> getString(R.string.status_sync_idle)
         }
         lines += if (st.lastSuccessMs > 0) getString(R.string.status_last_success, DateUtils.getRelativeTimeSpanString(st.lastSuccessMs, now, DateUtils.MINUTE_IN_MILLIS), st.lastSuccessRecords)
                  else getString(R.string.status_never)
-        if (st.lastError.isNotBlank()) lines += getString(R.string.status_last_error, st.lastError)
+        // The problem is shown only when the last run really ended badly, and with its age, so it cannot pass for the current state.
+        model.errorText?.let { lines += getString(R.string.status_last_error_at, DateUtils.getRelativeTimeSpanString(model.errorAtMs, now, DateUtils.MINUTE_IN_MILLIS), it) }
         lines += nextRunMs?.let { getString(R.string.status_next_run, DateUtils.getRelativeTimeSpanString(it, now, DateUtils.MINUTE_IN_MILLIS)) }
             ?: getString(R.string.status_next_run_none)
         lines += getString(R.string.status_permissions, grantedTypes, wantedTypes)
@@ -130,7 +135,7 @@ class MainActivity : ComponentActivity() {
         banner.text = bannerText.orEmpty()
         banner.visibility = if (bannerText.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
         signInOut.text = getString(if (settings.isSignedIn) R.string.sign_out else R.string.sign_in)
-        syncNow.isEnabled = st.state != SyncState.RUNNING
+        syncNow.isEnabled = model.syncEnabled
         diagnosticsView.text = DiagnosticLogger(applicationContext) { settings.domain }.recentText()
     }
 
