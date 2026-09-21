@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.Record
-import androidx.health.connect.client.request.ReadRecordsRequest
-import androidx.health.connect.client.time.TimeRangeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -46,6 +44,8 @@ internal class SyncEngine(
     private var recordFormat = 1
     private val lock = SyncLock(context)
     private val diagnostics = DiagnosticLogger(context, domainProvider)
+    private val resume = PrefsResumeStore(context)
+    private var batch = AdaptiveBatch(250)
 
     suspend fun run(): String = withContext(Dispatchers.IO) {
         diagnostics.uploadPending()
@@ -58,6 +58,7 @@ internal class SyncEngine(
             val config = fetchConfig()
             acceptsGzip = config.acceptsGzip
             recordFormat = config.recordFormat
+            batch = AdaptiveBatch(config.batchSize)
             val runStart = Instant.now()
             val end = minOf(config.historyEnd ?: runStart, runStart)
             val start = minOf(config.historyStart, end)
@@ -124,17 +125,15 @@ internal class SyncEngine(
                 message("Reading ${month}")
                 status.progress("$month", periodsDone, totalPeriods, runRecords)
                 phase = "read_records:${month}"
-                var total = 0
-                for (type in types) {
-                    val permission = HealthPermission.getReadPermission(type)
-                    if (permission !in grantedPermissions) continue
-                    readPages(type, TimeRangeFilter.between(chunkStart, chunkEnd), config.batchSize) { records ->
-                        total += records.size
-                        message("Sending ${month}: batch ${records.size} (read $total)")
-                        sendBatch(runId, chunkId, chunkStart, chunkEnd, records)
-                    }
+                // Type by type, newest first, with progress saved after every confirmed batch: an interrupted month is continued, not restarted.
+                val readable = types.filter { HealthPermission.getReadPermission(it) in grantedPermissions }
+                val importer = ChunkImporter(HealthConnectSource(client), { c, records -> sendBatch(runId, c.id, c.start, c.end, records) }, resume)
+                val total = importer.import(ChunkInfo(chunkId, chunkStart, chunkEnd), readable, config.batchSize) { type, size, confirmed ->
+                    message("Sending ${month}: ${type} batch ${size} (confirmed $confirmed)")
+                    status.progress("$month", periodsDone, totalPeriods, runRecords + confirmed)
                 }
                 completeChunk(runId, chunkId, chunkStart, chunkEnd)
+                resume.clear(chunkId)
                 message("${month} confirmed by server: $total records read")
                 runRecords += total
                 periodsDone++
@@ -149,13 +148,13 @@ internal class SyncEngine(
             "Completed"
         } catch (error: Throwable) {
             diagnostics.record(phase, "SyncEngine failure", error)
-            if (error !is kotlinx.coroutines.CancellationException) status.failure(ErrorText.describe(error))
+            if (error !is kotlinx.coroutines.CancellationException) status.failure(error)
             throw error
         } finally { lock.release() }
     }
 
     private suspend fun fetchConfig(): SyncConfig {
-        val json = request("GET", "/api/health/config", null, null)
+        val json = retrying { request("GET", "/api/health/config", null, null) }
         val start = runCatching { Instant.parse(json.getString("history_start")) }.getOrElse { throw IllegalStateException("Invalid server history_start") }
         val end = json.optString("history_end", "").takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it) }.getOrElse { throw IllegalStateException("Invalid server history_end") } }
         if (end != null && !end.isAfter(start)) throw IllegalStateException("Server history_end must be after history_start")
@@ -168,40 +167,41 @@ internal class SyncEngine(
 
     private suspend fun fetchServerCompletedChunks(): Set<String> {
         val token = prefs.getString("access_token", null) ?: return emptySet()
-        var json = request("GET", "/api/health/sync/status", null, token)
+        var json = retrying { request("GET", "/api/health/sync/status", null, token) }
         if (json.optBoolean("unauthorized", false)) {
             if (!refresh()) return emptySet()
-            json = request("GET", "/api/health/sync/status", null, prefs.getString("access_token", null))
+            json = retrying { request("GET", "/api/health/sync/status", null, prefs.getString("access_token", null)) }
         }
         val chunks = json.optJSONObject("chunks") ?: return emptySet()
         return chunks.keys().asSequence().filter { chunks.optJSONObject(it)?.optBoolean("complete", false) == true }.toSet()
     }
 
-    @Suppress("UNCHECKED_CAST", "EXPERIMENTAL_API_USAGE")
-    private suspend fun readPages(type: KClass<out Record>, filter: TimeRangeFilter, batchSize: Int, consume: suspend (List<Record>) -> Unit) {
-        var token: String? = null
-        do {
-            val page = client.readRecords(ReadRecordsRequest(type as KClass<Record>, filter, emptySet(), false, batchSize, token))
-            if (page.records.isNotEmpty()) consume(page.records)
-            token = page.pageToken
-        } while (!token.isNullOrBlank())
+    /** Sends the records and returns only after the server confirmed all of them; a timeout splits the body, other hiccups are repeated. */
+    private suspend fun sendBatch(runId: String, chunkId: String, start: Instant, end: Instant, records: List<Record>) {
+        val explicit = recordFormat >= RecordJson.FORMAT
+        val docs = records.map { encodeRecord(it, explicit).toString() }
+        val head = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
+            .put("chunk_start", start.toString()).put("chunk_end", end.toString())
+        if (explicit) head.put("record_format", RecordJson.FORMAT)
+        AdaptiveSender(batch, onRetry = { n, ms, e -> onRetry(n, ms, e) }) { part -> postSync(SyncEnvelope.body(head, part)) }.send(docs)
     }
 
-    private suspend fun sendBatch(runId: String, chunkId: String, start: Instant, end: Instant, records: List<Record>) {
-        val array = JSONArray()
-        val explicit = recordFormat >= RecordJson.FORMAT
-        records.forEach { array.put(encodeRecord(it, explicit)) }
-        val envelope = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
-            .put("chunk_start", start.toString()).put("chunk_end", end.toString()).put("records", array)
-        if (explicit) envelope.put("record_format", RecordJson.FORMAT)
-        val body = envelope.toString()
-        var response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip)
+    private fun postSync(body: String) {
+        var response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip, readTimeoutMs = POST_READ_TIMEOUT_MS)
         if (response.optBoolean("unauthorized", false)) {
             if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
-            response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip)
+            response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip, readTimeoutMs = POST_READ_TIMEOUT_MS)
         }
         if (!response.optBoolean("ok", true) && response.optInt("accepted", -1) < 0) throw IllegalStateException("Sync rejected")
     }
+
+    private fun onRetry(attempt: Int, delayMs: Long, error: Throwable) {
+        val text = "Connection problem (${error.javaClass.simpleName}), retrying $attempt of ${RetryPolicy.DEFAULT_DELAYS.size} in ${delayMs / 1000} s"
+        message(text)
+        diagnostics.record("retry", text)
+    }
+
+    private suspend fun <T> retrying(block: suspend () -> T): T = withRetry(onRetry = { n, ms, e -> onRetry(n, ms, e) }, block = block)
 
     private fun encodeRecord(record: Record, explicit: Boolean): JSONObject =
         (if (explicit) RecordJson.encode(record) else null) ?: JSONObject(RecordCatalog.recordJson(record))
@@ -212,8 +212,8 @@ internal class SyncEngine(
         val docs = upserts.map { encodeRecord(it, explicit) }
         for (envelope in ChangesEnvelope.batches(runId, if (explicit) RecordJson.FORMAT else null, docs, deletedIds, batchSize)) {
             val body = envelope.toString()
-            var response = changesRequest(body)
-            if (response.optBoolean("unauthorized", false) && refresh()) response = changesRequest(body)
+            var response = retrying { changesRequest(body) }
+            if (response.optBoolean("unauthorized", false) && refresh()) response = retrying { changesRequest(body) }
             // Updates are optional: a 401 here (a gateway that answers unknown paths that way) must not look like an expired session and
             // force a new sign-in. A really expired session surfaces on the next request of the full read.
             if (response.optBoolean("unauthorized", false)) throw ChangesUnavailableException("HTTP 401")
@@ -222,7 +222,7 @@ internal class SyncEngine(
     }
 
     private fun changesRequest(body: String): JSONObject = try {
-        request("POST", "/api/health/changes", body, prefs.getString("access_token", null), compress = acceptsGzip)
+        request("POST", "/api/health/changes", body, prefs.getString("access_token", null), compress = acceptsGzip, readTimeoutMs = POST_READ_TIMEOUT_MS)
     } catch (e: HttpStatusException) {
         // 404/405/501: a proxy that forwards only known paths, or a server that announced more than it implements. Not fatal.
         if (e.code == 404 || e.code == 405 || e.code == 501) throw ChangesUnavailableException("HTTP ${e.code}") else throw e
@@ -231,10 +231,10 @@ internal class SyncEngine(
     private suspend fun completeChunk(runId: String, chunkId: String, start: Instant, end: Instant) {
         val body = JSONObject().put("schema_version", 1).put("run_id", runId).put("chunk_id", chunkId)
             .put("chunk_start", start.toString()).put("chunk_end", end.toString()).put("complete", true).put("records", JSONArray()).toString()
-        var response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null))
+        var response = retrying { request("POST", "/api/health/sync", body, prefs.getString("access_token", null)) }
         if (response.optBoolean("unauthorized", false)) {
             if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
-            response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null))
+            response = retrying { request("POST", "/api/health/sync", body, prefs.getString("access_token", null)) }
         }
         if (!response.optBoolean("ok", false) || response.optString("chunk_id") != chunkId) throw IllegalStateException("Server did not confirm range")
     }
@@ -248,17 +248,18 @@ internal class SyncEngine(
         }.getOrDefault(false)
     }
 
-    private fun request(method: String, path: String, body: String?, token: String?, compress: Boolean = false): JSONObject {
+    private fun request(method: String, path: String, body: String?, token: String?, compress: Boolean = false, readTimeoutMs: Int = READ_TIMEOUT_MS): JSONObject {
         val c = (URL("https://${domainProvider()}$path").openConnection() as HttpURLConnection)
-        c.requestMethod = method; c.connectTimeout = 15000; c.readTimeout = 30000
+        c.requestMethod = method; c.connectTimeout = CONNECT_TIMEOUT_MS; c.readTimeout = readTimeoutMs
         c.setRequestProperty("Accept", "application/json")
         if (!token.isNullOrBlank()) c.setRequestProperty("Authorization", "Bearer $token")
         if (body != null) {
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json")
             val bytes = body.toByteArray()
-            if (compress && bytes.size > GZIP_MIN_BYTES) { c.setRequestProperty("Content-Encoding", "gzip"); c.outputStream.use { it.write(gzip(bytes)) } }
-            else c.outputStream.use { it.write(bytes) }
+            val payload = if (compress && bytes.size > GZIP_MIN_BYTES) { c.setRequestProperty("Content-Encoding", "gzip"); gzip(bytes) } else bytes
+            c.setFixedLengthStreamingMode(payload.size) // no second copy of the body in memory, and the proxy sees the length up front
+            c.outputStream.use { it.write(payload) }
         }
         val code = c.responseCode
         val stream = if (code in 200..299) c.inputStream else c.errorStream
@@ -271,6 +272,11 @@ internal class SyncEngine(
 }
 
 private const val GZIP_MIN_BYTES = 1024
+private const val CONNECT_TIMEOUT_MS = 15_000
+private const val READ_TIMEOUT_MS = 30_000
+
+/** Uploads wait longer for the answer: the server may pause for a moment to commit a big batch, and a retry costs more than waiting. */
+private const val POST_READ_TIMEOUT_MS = 90_000
 
 internal fun gzip(bytes: ByteArray): ByteArray {
     val out = ByteArrayOutputStream(bytes.size / 8 + 64)

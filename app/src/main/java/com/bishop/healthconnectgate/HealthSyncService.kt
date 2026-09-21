@@ -29,12 +29,13 @@ class HealthSyncService : Service() {
                 val diagnostics = DiagnosticLogger(applicationContext) { domain }
                 diagnostics.record("service_start", "HealthSyncService started")
                 SyncEngine(applicationContext, HealthConnectClient.getOrCreate(applicationContext), { domain }) { phase ->
-                    diagnostics.record("sync_phase", phase)
+                    // "Sending ..." is reported for every batch: it belongs on the screen and in the notification, not in the diagnostics outbox.
+                    if (!phase.startsWith("Sending")) diagnostics.record("sync_phase", phase)
                     update(phase)
                 }.run()
             } catch (e: Throwable) {
                 DiagnosticLogger(applicationContext) { domain }.record("service_sync", "HealthSyncService failure", e)
-                SyncStatusStore(applicationContext).failure(ErrorText.describe(e))
+                SyncStatusStore(applicationContext).failure(e)
                 update(ErrorText.describe(e))
             } finally { stopSelfResult(startId) }
         }

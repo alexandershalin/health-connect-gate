@@ -33,13 +33,14 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
             Result.success()
         } catch (error: AuthRequiredException) {
             DiagnosticLogger(applicationContext) { domain }.record("worker_sync", "Sign-in required; not retrying", error)
-            SyncStatusStore(applicationContext).failure(ErrorText.describe(error))
+            SyncStatusStore(applicationContext).failure(error)
             Result.failure()
         } catch (error: Throwable) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             DiagnosticLogger(applicationContext) { domain }.record("worker_sync", "SyncWorker failure", error)
-            SyncStatusStore(applicationContext).failure(ErrorText.describe(error))
-            Result.retry()
+            SyncStatusStore(applicationContext).failure(error)
+            // A dropped connection is worth another try soon (the run continues where it stopped); anything else waits for the next period.
+            if (ErrorClassifier.shouldRetryWork(error, runAttemptCount)) Result.retry() else Result.failure()
         }
     }
     private fun updateNotification(text: String) { applicationContext.getSystemService(NotificationManager::class.java).notify(ID, notification(text)) }
@@ -48,11 +49,11 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     companion object { const val UNIQUE_NAME = "health-connect-periodic-sync"; private const val CHANNEL = "health_sync"; private const val ID = 4102
         fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME) }
 
-        /** Hourly sync, but only with a network connection and a battery that is not low; retries back off exponentially. */
+        /** Hourly sync, but only with a network connection and a battery that is not low; a transient failure is repeated after 30 s, 1 min, 2 min... */
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
