@@ -27,6 +27,9 @@ Health Connect ──read──▶ Health Connect Gate ──HTTPS──▶ your
    chunk done only when **the server confirms it**, so an interrupted sync is safe to repeat.
    After the first full read the app asks Health Connect for **changes** (a changes token) when the server supports it, so corrected
    records are updated and deleted records disappear on the server; a full read of the current window is repeated weekly as a safety net.
+   A dropped or timed-out connection does not end the import: requests are repeated (after 2, 5 and 15 s), a body that times out is sent in halves, and
+   an interrupted month is continued from the last batch the server confirmed instead of being sent again. The screen then says *interrupted* with the
+   progress and offers to continue; a problem is shown only while it is current, with its age.
 5. **Diagnostics** – phases and errors go to a local outbox and are uploaded to the server. Health data and credentials never enter them.
 
 The main screen shows the server and sign-in state, the last success, the last problem in plain language and the next background run.
@@ -268,6 +271,7 @@ Compare the file with its checksum (`sha256sum -c HealthConnectGate-<version>.ap
 * Tokens are stored unencrypted in the app's private storage.
 * The 13 record types the receiver models are written by explicit code; the rest are serialised by reflection (a library upgrade can change that JSON, and R8
   stays off because of it). A unit test guards the explicit encoder.
+* Progress inside a half-read month is kept on the phone for six hours; after that (or after signing out) the month is read again from its start.
 * Deletions that happen while the app has no valid changes token (first run, more than 30 days offline, another server or data selection) are not detected;
   the weekly full read repairs corrections but cannot see missing records.
 * Google Fit placeholders keep no values, so a corrected Google Fit copy of an already folded record is not applied.
