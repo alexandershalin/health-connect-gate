@@ -68,7 +68,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
