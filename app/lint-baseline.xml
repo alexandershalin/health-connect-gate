@@ -1,0 +1,473 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.10.1" type="baseline" client="gradle" dependencies="false" name="AGP (8.10.1)" variant="all" version="8.10.1">
+
+    <issue
+        id="OldTargetApi"
+        message="Not targeting the latest versions of Android; compatibility modes apply. Consider testing and updating this version. Consult the `android.os.Build.VERSION_CODES` javadoc for details."
+        errorLine1="        targetSdk = 35"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="29"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="ForegroundServicePermission"
+        message="foregroundServiceType:health requires permission:[android.permission.FOREGROUND_SERVICE_HEALTH] AND any permission in list:[android.permission.ACTIVITY_RECOGNITION, android.permission.BODY_SENSORS, android.permission.HIGH_SAMPLING_RATE_SENSORS]"
+        errorLine1="        &lt;service android:name=&quot;androidx.work.impl.foreground.SystemForegroundService&quot; android:foregroundServiceType=&quot;health&quot; tools:node=&quot;merge&quot; />"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="52"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="ForegroundServicePermission"
+        message="foregroundServiceType:health requires permission:[android.permission.FOREGROUND_SERVICE_HEALTH] AND any permission in list:[android.permission.ACTIVITY_RECOGNITION, android.permission.BODY_SENSORS, android.permission.HIGH_SAMPLING_RATE_SENSORS]"
+        errorLine1="        &lt;service android:name=&quot;.HealthSyncService&quot; android:exported=&quot;false&quot; android:foregroundServiceType=&quot;health&quot; />"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="53"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of Gradle than 8.11.1 is available: 8.14.5"
+        errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-8.11.1-bin.zip"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="$HOME/health-connect-gate/gradle/wrapper/gradle-wrapper.properties"
+            line="4"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.core:core-ktx than 1.18.0 is available: 1.19.0"
+        errorLine1="    implementation(&quot;androidx.core:core-ktx:1.18.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="71"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="Typos"
+        message="Repeated word &quot;in&quot; in message: possible typo"
+        errorLine1="    &lt;string name=&quot;msg_waiting_signin&quot;>Waiting for the sign-in in your browser…&lt;/string>"
+        errorLine2="                                                           ^">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="59"
+            column="60"/>
+    </issue>
+
+    <issue
+        id="PluralsCandidate"
+        message="Formatting %d followed by words (&quot;periods&quot;): This should probably be a plural rather than a string"
+        errorLine1="    &lt;string name=&quot;status_sync_running&quot;>Synchronization: running – %1$s (%2$d of %3$d periods, %4$d records sent)&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="35"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="PluralsCandidate"
+        message="Formatting %d followed by words (&quot;periods&quot;): This should probably be a plural rather than a string"
+        errorLine1="    &lt;string name=&quot;status_sync_interrupted&quot;>Synchronization: interrupted (%1$d of %2$d periods, %3$d records sent). Tap Sync to continue where it stopped.&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="37"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="PluralsCandidate"
+        message="Formatting %d followed by words (&quot;records&quot;): This should probably be a plural rather than a string"
+        errorLine1="    &lt;string name=&quot;status_last_success&quot;>Last successful sync: %1$s, %2$d records&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="40"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="PluralsCandidate"
+        message="Formatting %d followed by words (&quot;selected&quot;): This should probably be a plural rather than a string"
+        errorLine1="    &lt;string name=&quot;status_permissions&quot;>Health Connect: %1$d of %2$d selected data types allowed&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="46"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="DataExtractionRules"
+        message="The attribute `android:allowBackup` is deprecated from Android 12 and higher and may be removed in future versions. Consider adding the attribute `android:dataExtractionRules` specifying an `@xml` resource which configures cloud backups and device transfers on Android 12 and higher."
+        errorLine1="    &lt;application android:theme=&quot;@style/AppTheme&quot; android:label=&quot;@string/app_name&quot; android:icon=&quot;@mipmap/ic_launcher&quot; android:roundIcon=&quot;@mipmap/ic_launcher_round&quot; android:allowBackup=&quot;false&quot;>"
+        errorLine2="                                                                                                                                                                                        ~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="50"
+            column="185"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 26"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 26) notificationManager.createNotificationChannel(NotificationChannel(CHANNEL, &quot;Health synchronization&quot;, NotificationManager.IMPORTANCE_LOW))"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/HealthSyncService.kt"
+            line="22"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 26"
+        errorLine1="    private fun notification(text: String): Notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(this).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build()"
+        errorLine2="                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/HealthSyncService.kt"
+            line="47"
+            column="64"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 26"
+        errorLine1="    private fun notification(text: String): Notification { val manager = applicationContext.getSystemService(NotificationManager::class.java); if (android.os.Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, &quot;Health synchronization&quot;, NotificationManager.IMPORTANCE_LOW)); return if (android.os.Build.VERSION.SDK_INT >= 26) Notification.Builder(applicationContext, CHANNEL).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(applicationContext).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() }"
+        errorLine2="                                                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncWorker.kt"
+            line="47"
+            column="148"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 26"
+        errorLine1="    private fun notification(text: String): Notification { val manager = applicationContext.getSystemService(NotificationManager::class.java); if (android.os.Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, &quot;Health synchronization&quot;, NotificationManager.IMPORTANCE_LOW)); return if (android.os.Build.VERSION.SDK_INT >= 26) Notification.Builder(applicationContext, CHANNEL).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(applicationContext).setContentTitle(applicationContext.getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() }"
+        errorLine2="                                                                                                                                                                                                                                                                                                                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncWorker.kt"
+            line="47"
+            column="326"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 26. Merge all the resources in this folder into `mipmap-anydpi`.">
+        <location
+            file="src/main/res/mipmap-anydpi-v26"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.status_last_error` appears to be unused"
+        errorLine1="    &lt;string name=&quot;status_last_error&quot;>Problem: %1$s&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="42"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) { prefs.edit().apply { if (value == null) remove(&quot;token&quot;) else putString(&quot;token&quot;, value) }.apply() }"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChangesSync.kt"
+            line="65"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) { prefs.edit().apply { if (value == null) remove(&quot;scope&quot;) else putString(&quot;scope&quot;, value) }.apply() }"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChangesSync.kt"
+            line="68"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) { prefs.edit().apply { if (value == null) remove(&quot;full_read_at&quot;) else putLong(&quot;full_read_at&quot;, value.toEpochMilli()) }.apply() }"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChangesSync.kt"
+            line="71"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs.edit().putString(key(chunkId, typeKey), &quot;${if (progress.done) 1 else 0}|${progress.oldestStartMs ?: &quot;&quot;}|${progress.sent}|${progress.savedAtMs}&quot;).apply()"
+        errorLine2="        ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChunkImport.kt"
+            line="129"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        val editor = prefs.edit()"
+        errorLine2="                     ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChunkImport.kt"
+            line="133"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="    override fun clearAll() { prefs.edit().clear().apply() }"
+        errorLine2="                              ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/ChunkImport.kt"
+            line="138"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            val auth = Uri.parse(&quot;$base/auth/native/authorize&quot;).buildUpon().appendQueryParameter(&quot;code_challenge&quot;, challenge).appendQueryParameter(&quot;code_challenge_method&quot;, &quot;S256&quot;).appendQueryParameter(&quot;redirect_uri&quot;, redirect).appendQueryParameter(&quot;state&quot;, expected).build()"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/MainActivity.kt"
+            line="214"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        set(value) { legacy.edit().putString(&quot;gateway_domain&quot;, value).apply() }"
+        errorLine2="                     ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/Settings.kt"
+            line="17"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        legacy.edit().putString(&quot;access_token&quot;, access).putString(&quot;refresh_token&quot;, refresh.orEmpty()).apply()"
+        errorLine2="        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/Settings.kt"
+            line="23"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        resume.edit().clear().apply() // so does the progress inside a half-read month"
+        errorLine2="        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/Settings.kt"
+            line="33"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            own.edit().apply { if (value == null) remove(&quot;selected_categories&quot;) else putStringSet(&quot;selected_categories&quot;, value) }.apply()"
+        errorLine2="            ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/Settings.kt"
+            line="40"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                prefs.edit().clear().putString(&quot;gateway_domain&quot;, domainProvider()).putString(&quot;config_fingerprint&quot;, config.fingerprint)"
+        errorLine2="                ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncEngine.kt"
+            line="68"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                prefs.edit().putString(&quot;run_id&quot;, it).apply()"
+        errorLine2="                ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncEngine.kt"
+            line="72"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                prefs.edit().putString(&quot;completed:$chunkId&quot;, &quot;1&quot;).putString(&quot;next_month&quot;, month.plusMonths(config.chunkMonths.toLong()).toString()).apply()"
+        errorLine2="                ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncEngine.kt"
+            line="141"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            prefs.edit().remove(&quot;run_id&quot;).apply()"
+        errorLine2="            ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncEngine.kt"
+            line="147"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            prefs.edit().putString(&quot;access_token&quot;, access).putString(&quot;refresh_token&quot;, json.optString(&quot;refresh_token&quot;, refresh)).apply(); true"
+        errorLine2="            ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncEngine.kt"
+            line="247"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs.edit().putString(&quot;state&quot;, SyncState.RUNNING.name).putLong(&quot;started&quot;, now).putLong(&quot;updated&quot;, now)"
+        errorLine2="        ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncStatus.kt"
+            line="40"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs.edit().putString(&quot;state&quot;, SyncState.RUNNING.name).putString(&quot;detail&quot;, detail).putLong(&quot;updated&quot;, now)"
+        errorLine2="        ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncStatus.kt"
+            line="47"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs.edit().putString(&quot;state&quot;, SyncState.IDLE.name).putString(&quot;detail&quot;, &quot;&quot;).putLong(&quot;ok_ms&quot;, System.currentTimeMillis())"
+        errorLine2="        ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncStatus.kt"
+            line="52"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs.edit().putString(&quot;state&quot;, (if (resumable) SyncState.INTERRUPTED else SyncState.FAILED).name).putString(&quot;err&quot;, text)"
+        errorLine2="        ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncStatus.kt"
+            line="58"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="    fun clear() { prefs.edit().clear().apply() }"
+        errorLine2="                  ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/SyncStatus.kt"
+            line="65"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = getString(R.string.app_name) + &quot; uses Health Connect to synchronize your health data with the server you configure.\n\n&quot; +"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/PermissionsRationaleActivity.kt"
+            line="12"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = getString(R.string.app_name) + &quot; uses Health Connect to synchronize your health data with the server you configure.\n\n&quot; +"
+        errorLine2="                   ^">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/PermissionsRationaleActivity.kt"
+            line="12"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = getString(R.string.app_name) + &quot; uses Health Connect to synchronize your health data with the server you configure.\n\n&quot; +"
+        errorLine2="                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/PermissionsRationaleActivity.kt"
+            line="12"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="String literal in `setText` can not be translated. Use Android resources instead."
+        errorLine1="            text = getString(R.string.app_name) + &quot; uses Health Connect to synchronize your health data with the server you configure.\n\n&quot; +"
+        errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/PermissionsRationaleActivity.kt"
+            line="12"
+            column="52"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="String literal in `setText` can not be translated. Use Android resources instead."
+        errorLine1="                &quot;Privacy policy: https://github.com/alexandershalin/health-connect-gate/blob/main/PRIVACY.md&quot;"
+        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/bishop/healthconnectgate/PermissionsRationaleActivity.kt"
+            line="13"
+            column="18"/>
+    </issue>
+
+</issues>

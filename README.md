@@ -242,9 +242,10 @@ Planned work is listed in [ROADMAP.md](ROADMAP.md). The repository has no defaul
 `~/.gradle/gradle.properties` or pass `-Pgate.defaultDomain=…`.
 
 **Releases** are built by GitHub Actions and signed with the project key: pushing a tag `v<versionName>` (equal to `versionName` in `app/build.gradle.kts`)
-builds the APK, verifies signature, package and version, and publishes it with a SHA-256 file. `versionCode` is derived from `versionName`
-(`major*10000 + minor*100 + patch`) so it can never fall below an earlier build. Nothing is built on ordinary pushes; CI (app build, server tests, Docker image,
-secret scan) runs on pull requests and on demand. Official APKs are signed with a certificate whose SHA-256 is
+runs the app's unit tests and lint, then builds the APK, verifies signature, package and version, and publishes it with a SHA-256 file; a test or a new
+lint finding stops the release before the signing key is even touched. `versionCode` is derived from `versionName` (`major*10000 + minor*100 + patch`)
+so it can never fall below an earlier build. Nothing is built on ordinary pushes; CI (app build, unit tests, lint, server tests, Docker image, secret scan)
+runs the same checks on pull requests and on demand. Official APKs are signed with a certificate whose SHA-256 is
 `CA:55:6D:77:20:FB:84:F0:22:19:EB:0D:BD:34:11:3A:89:F0:20:BD:C0:0A:78:23:60:38:FE:89:74:4A:F1:EC`
 (`apksigner verify --print-certs HealthConnectGate-<version>.apk`). Debug builds use a different key.
 

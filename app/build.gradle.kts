@@ -60,6 +60,9 @@ android {
     }
     buildFeatures { buildConfig = true }
     testOptions { unitTests.isReturnDefaultValues = true }
+    // Baseline freezes today's known findings (see ROADMAP.md) so CI can block on lintDebug without failing on them;
+    // any NEW error or warning still fails the build. Update the baseline (./gradlew :app:updateLintBaseline) after fixing one.
+    lint { baseline = file("lint-baseline.xml") }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

@@ -45,6 +45,11 @@ jobs:
         run: |
           [ "${TAG#v}" = "$NAME" ] || { echo "::error::tag $TAG does not match versionName $NAME"; exit 1; }
 
+      # Before the signing key is even decoded: a broken test or a NEW lint finding must never reach a release.
+      # lintDebug is checked against app/lint-baseline.xml (today's known findings, see ROADMAP.md).
+      - name: Unit tests and lint
+        run: ./gradlew --no-daemon --continue :app:testDebugUnitTest :app:lintDebug
+
       - name: Prepare the signing key
         env:
           KEYSTORE_B64: ${{ secrets.GATE_KEYSTORE_BASE64 }}

@@ -6,7 +6,7 @@ Ideas for future work, roughly by priority. Nothing here is promised; the [READM
 
 * **Tokens in the Android Keystore.** They are currently kept in the app's private preferences (see *Limitations*).
 * **Health Connect availability check** (`getSdkStatus`) with a clear message and an install button instead of a failure on devices without it.
-* **`ForegroundServicePermission` lint error.** The `health` foreground service starts on current devices; either declare the extra sensor permission the lint rule asks for or document why it is not needed.
+* **`ForegroundServicePermission` lint error** (frozen in `app/lint-baseline.xml` so CI is not blocked by it). The `health` foreground service starts on current devices; either declare the extra sensor permission the lint rule asks for or document why it is not needed, then drop it from the baseline.
 * **Sync settings:** interval, Wi-Fi only, charging only.
 * **Filter by data origin** (`dataOriginFilter`) so duplicates can be dropped on the phone instead of on the server.
 * **Hint to update** when the server announces a minimum app version.
@@ -28,7 +28,6 @@ Ideas for future work, roughly by priority. Nothing here is promised; the [READM
 
 ## Releases and CI
 
-* `needs:` on tests and lint before a release is published.
 * Build provenance (`actions/attest-build-provenance`) and an SBOM (CycloneDX) attached to releases.
 * CodeQL (Kotlin, Python) and a dependency vulnerability check.
 * **APK signature scheme v3** so the signing key can be rotated one day without asking everyone to reinstall.
