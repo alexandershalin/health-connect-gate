@@ -32,3 +32,11 @@ an authenticating service in front of it) and social engineering.
 * The app talks only HTTPS to the server you configure; the receiver fails closed when its auth backend is unreachable.
 
 Known limitations are listed in the README under *Limitations* (for example, tokens are stored unencrypted in the app's private storage).
+
+Operational notes:
+
+* The receiver caches a successful answer of the auth backend for up to 60 s (shorter when the backend reports an earlier
+  `expires_at`), so a revoked session can still be accepted for up to a minute.
+* Deleting a record in Health Connect deletes the stored record and the Google Fit placeholders that pointed at it; this cannot be undone.
+  Back up with `receiver.py backup` first if that matters.
+* A stored record in an unmodelled shape without a `lastModifiedTime` is never replaced by a later version (nothing says which is newer).

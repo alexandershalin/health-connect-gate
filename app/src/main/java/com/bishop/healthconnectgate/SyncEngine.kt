@@ -66,7 +66,7 @@ internal class SyncEngine(
                 val access = prefs.getString("access_token", null)
                 val refresh = prefs.getString("refresh_token", null)
                 prefs.edit().clear().putString("gateway_domain", domainProvider()).putString("config_fingerprint", config.fingerprint)
-                    .putString("access_token", access).putString("refresh_token", refresh).apply()
+                    .putString("access_token", access).putString("refresh_token", refresh).commit() // synchronous: the tokens must not be lost to a crash in between
             }
             val runId = prefs.getString("run_id", null) ?: UUID.randomUUID().toString().also {
                 prefs.edit().putString("run_id", it).apply()
@@ -240,13 +240,17 @@ internal class SyncEngine(
         if (!response.optBoolean("ok", false) || response.optString("chunk_id") != chunkId) throw IllegalStateException("Server did not confirm range")
     }
 
+    /** False only when the server rejected the refresh token; a network failure propagates so the run is retried instead of forcing a new sign-in. */
     private fun refresh(): Boolean {
-        val refresh = prefs.getString("refresh_token", null) ?: return false
-        return runCatching {
-            val json = request("POST", "/auth/native/refresh", JSONObject().put("refresh_token", refresh).toString(), null)
-            val access = json.optString("access_token").takeIf { it.isNotBlank() } ?: return@runCatching false
-            prefs.edit().putString("access_token", access).putString("refresh_token", json.optString("refresh_token", refresh)).apply(); true
-        }.getOrDefault(false)
+        val refresh = prefs.getString("refresh_token", null)?.takeIf { it.isNotBlank() } ?: return false
+        val json = try {
+            request("POST", "/auth/native/refresh", JSONObject().put("refresh_token", refresh).toString(), null)
+        } catch (e: HttpStatusException) {
+            if (e.code in 400..499) return false else throw e
+        }
+        val access = json.optString("access_token").takeIf { it.isNotBlank() } ?: return false
+        prefs.edit().putString("access_token", access).putString("refresh_token", json.optString("refresh_token", refresh)).apply()
+        return true
     }
 
     private fun request(method: String, path: String, body: String?, token: String?, compress: Boolean = false, readTimeoutMs: Int = READ_TIMEOUT_MS): JSONObject {
