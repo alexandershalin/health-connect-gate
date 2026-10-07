@@ -2,7 +2,8 @@
 # Build:  docker build -t health-connect-gate-receiver .        (run from this directory)
 # See the repository README ("Docker") and compose.yaml for a complete, hardened setup.
 ARG PYTHON_VERSION=3.13
-FROM python:${PYTHON_VERSION}-slim
+# Pinned by digest (Dependabot's docker ecosystem keeps tag and digest current); the digest belongs to the default PYTHON_VERSION.
+FROM python:${PYTHON_VERSION}-slim@sha256:bf44cdfcb76cd3b41e879bc058fc37ec5872002ccfde7fcb765e218cde0cd79c
 
 # 0.0.0.0 is the container's own interface: publish the port on 127.0.0.1 only (compose.yaml does) and put a TLS
 # reverse proxy in front. Without HEALTH_RECEIVER_AUTH_URL every request is refused (fail closed).
