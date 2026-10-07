@@ -44,7 +44,12 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorke
     }
     private fun updateNotification(text: String) { applicationContext.getSystemService(NotificationManager::class.java).notify(ID, notification(text)) }
     private fun notification(text: String): Notification = SyncNotification.build(applicationContext, text)
-    private fun createForegroundInfo(text: String) = if (android.os.Build.VERSION.SDK_INT >= 34) ForegroundInfo(ID, notification(text), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH) else ForegroundInfo(ID, notification(text))
+    private fun createForegroundInfo(text: String) =
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            ForegroundInfo(ID, notification(text), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        } else {
+            ForegroundInfo(ID, notification(text))
+        }
     companion object { const val UNIQUE_NAME = "health-connect-periodic-sync"; private const val ID = 4102
         fun cancel(context: Context) { WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME) }
 
