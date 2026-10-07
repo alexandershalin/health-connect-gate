@@ -213,13 +213,22 @@ class MainActivity : ComponentActivity() {
             val redirect = "http://127.0.0.1:${server.localPort}/callback"
             val auth = Uri.parse("$base/auth/native/authorize").buildUpon().appendQueryParameter("code_challenge", challenge).appendQueryParameter("code_challenge_method", "S256").appendQueryParameter("redirect_uri", redirect).appendQueryParameter("state", expected).build()
             withContext(Dispatchers.Main) { showBanner(getString(R.string.msg_waiting_signin)); startActivity(Intent(Intent.ACTION_VIEW, auth)) }
-            var socket: java.net.Socket
-            var request: String
-            do { socket = server.accept(); request = socket.getInputStream().bufferedReader().readLine() ?: ""; if (!request.contains("/callback?")) socket.close() } while (!request.contains("/callback?"))
-            socket.getOutputStream().use { it.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<html><script>window.close()</script><body>Sign-in complete. You may close this tab.</body></html>".toByteArray()) }
-            socket.close(); server.close()
-            val query = request.substringAfter("?").substringBefore(" ").split("&").mapNotNull { it.split("=", limit = 2).takeIf { p -> p.size == 2 }?.let { p -> p[0] to URLDecoder.decode(p[1], "UTF-8") } }.toMap()
-            require(query["state"] == expected && !query["code"].isNullOrBlank())
+            // Keep listening until the real callback arrives: a stray or forged local request (wrong state, no code) must not abort the sign-in.
+            var query: Map<String, String> = emptyMap()
+            while (true) {
+                val socket = server.accept()
+                socket.soTimeout = 5_000
+                val request = runCatching { socket.getInputStream().bufferedReader().readLine() }.getOrNull() ?: ""
+                query = if (request.contains("/callback?")) request.substringAfter("?").substringBefore(" ").split("&")
+                    .mapNotNull { it.split("=", limit = 2).takeIf { p -> p.size == 2 }?.let { p -> p[0] to URLDecoder.decode(p[1], "UTF-8") } }.toMap() else emptyMap()
+                val valid = query["state"] == expected && !query["code"].isNullOrBlank()
+                runCatching {
+                    socket.getOutputStream().use { it.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<html><script>window.close()</script><body>${if (valid) "Sign-in complete. You may close this tab." else "Invalid request."}</body></html>".toByteArray()) }
+                }
+                socket.close()
+                if (valid) break
+            }
+            server.close()
             val response = post("$base/auth/native/token", JSONObject().put("code", query["code"]).put("code_verifier", verifier).toString())
             settings.saveTokens(response.getString("access_token"), response.optString("refresh_token"))
             withContext(Dispatchers.Main) { SyncWorker.schedule(this@MainActivity); showBanner(getString(R.string.msg_signed_in)) }

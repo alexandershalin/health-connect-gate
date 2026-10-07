@@ -192,7 +192,8 @@ internal class SyncEngine(
             if (!refresh()) throw AuthRequiredException("Hermes session expired; sign in again")
             response = request("POST", "/api/health/sync", body, prefs.getString("access_token", null), compress = acceptsGzip, readTimeoutMs = POST_READ_TIMEOUT_MS)
         }
-        if (!response.optBoolean("ok", true) && response.optInt("accepted", -1) < 0) throw IllegalStateException("Sync rejected")
+        // An empty or unrelated 200 body (a proxy, a captive portal) is not a confirmation; older servers confirm with "accepted" only.
+        if (!response.optBoolean("ok", false) && response.optInt("accepted", -1) < 0) throw IllegalStateException("Sync rejected")
     }
 
     private fun onRetry(attempt: Int, delayMs: Long, error: Throwable) {
