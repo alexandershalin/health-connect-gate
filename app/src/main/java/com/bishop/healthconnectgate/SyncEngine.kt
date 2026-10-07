@@ -304,13 +304,36 @@ internal object RecordCatalog {
 
 private object ReflectiveJson {
     fun encodeRecord(record: Record): String {
-        val data = linkedMapOf<String, Any?>("id" to record.javaClass.methods.firstOrNull { it.name == "getMetadata" }?.invoke(record)?.let { m -> m.javaClass.methods.firstOrNull { it.name == "getId" }?.invoke(m) }, "kind" to record.javaClass.simpleName.removeSuffix("Record"), "data" to record)
+        val metadata = record.javaClass.methods.firstOrNull { it.name == "getMetadata" }?.invoke(record)
+        val id = metadata?.let { m -> m.javaClass.methods.firstOrNull { it.name == "getId" }?.invoke(m) }
+        val data = linkedMapOf<String, Any?>("id" to id, "kind" to record.javaClass.simpleName.removeSuffix("Record"), "data" to record)
         return encode(data, java.util.Collections.newSetFromMap(java.util.IdentityHashMap()))
     }
+
     private fun encode(v: Any?, active: MutableSet<Any>): String = when (v) {
-        null -> "null"; is String, is Char, is Enum<*> -> JSONObject.quote(v.toString()); is Number, is Boolean -> v.toString()
-        is java.time.temporal.TemporalAccessor -> JSONObject.quote(v.toString()); is Iterable<*> -> v.joinToString(separator = ",", prefix = "[", postfix = "]") { encode(it, active) }
-        is Map<*, *> -> v.entries.joinToString(separator = ",", prefix = "{", postfix = "}") { "${JSONObject.quote(it.key.toString())}:${encode(it.value, active)}" }
-        else -> if (!active.add(v)) JSONObject.quote(v.toString()) else try { v.javaClass.methods.filter { it.parameterCount == 0 && (it.name.startsWith("get") || it.name.startsWith("is")) && it.name != "getClass" }.distinctBy { it.name }.sortedBy { it.name }.mapNotNull { m -> runCatching { (if (m.name.startsWith("get")) m.name.substring(3) else m.name.substring(2)).replaceFirstChar { it.lowercase() } to m.invoke(v) }.getOrNull() }.joinToString(separator = ",", prefix = "{", postfix = "}") { "${JSONObject.quote(it.first)}:${encode(it.second, active)}" } } finally { active.remove(v) }
+        null -> "null"
+        is String, is Char, is Enum<*> -> JSONObject.quote(v.toString())
+        is Number, is Boolean -> v.toString()
+        is java.time.temporal.TemporalAccessor -> JSONObject.quote(v.toString())
+        is Iterable<*> -> v.joinToString(separator = ",", prefix = "[", postfix = "]") { encode(it, active) }
+        is Map<*, *> -> v.entries.joinToString(separator = ",", prefix = "{", postfix = "}") {
+            "${JSONObject.quote(it.key.toString())}:${encode(it.value, active)}"
+        }
+        else -> if (!active.add(v)) JSONObject.quote(v.toString()) else try { encodeObject(v, active) } finally { active.remove(v) }
+    }
+
+    /** A bean as a JSON object: every public no-argument getter / `is…` method, sorted by method name; a getter that throws is skipped. */
+    private fun encodeObject(v: Any, active: MutableSet<Any>): String {
+        val getters = v.javaClass.methods
+            .filter { it.parameterCount == 0 && (it.name.startsWith("get") || it.name.startsWith("is")) && it.name != "getClass" }
+            .distinctBy { it.name }
+            .sortedBy { it.name }
+        val fields = getters.mapNotNull { m ->
+            runCatching {
+                val name = (if (m.name.startsWith("get")) m.name.substring(3) else m.name.substring(2)).replaceFirstChar { it.lowercase() }
+                name to m.invoke(v)
+            }.getOrNull()
+        }
+        return fields.joinToString(separator = ",", prefix = "{", postfix = "}") { "${JSONObject.quote(it.first)}:${encode(it.second, active)}" }
     }
 }

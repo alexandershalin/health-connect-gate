@@ -211,7 +211,12 @@ class MainActivity : ComponentActivity() {
             val expected = UUID.randomUUID().toString()
             val server = ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).also { it.soTimeout = 300_000; openServer = it }
             val redirect = "http://127.0.0.1:${server.localPort}/callback"
-            val auth = Uri.parse("$base/auth/native/authorize").buildUpon().appendQueryParameter("code_challenge", challenge).appendQueryParameter("code_challenge_method", "S256").appendQueryParameter("redirect_uri", redirect).appendQueryParameter("state", expected).build()
+            val auth = Uri.parse("$base/auth/native/authorize").buildUpon()
+                .appendQueryParameter("code_challenge", challenge)
+                .appendQueryParameter("code_challenge_method", "S256")
+                .appendQueryParameter("redirect_uri", redirect)
+                .appendQueryParameter("state", expected)
+                .build()
             withContext(Dispatchers.Main) { showBanner(getString(R.string.msg_waiting_signin)); startActivity(Intent(Intent.ACTION_VIEW, auth)) }
             // Keep listening until the real callback arrives: a stray or forged local request (wrong state, no code) must not abort the sign-in.
             var query: Map<String, String> = emptyMap()
@@ -222,9 +227,10 @@ class MainActivity : ComponentActivity() {
                 query = if (request.contains("/callback?")) request.substringAfter("?").substringBefore(" ").split("&")
                     .mapNotNull { it.split("=", limit = 2).takeIf { p -> p.size == 2 }?.let { p -> p[0] to URLDecoder.decode(p[1], "UTF-8") } }.toMap() else emptyMap()
                 val valid = query["state"] == expected && !query["code"].isNullOrBlank()
-                runCatching {
-                    socket.getOutputStream().use { it.write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<html><script>window.close()</script><body>${if (valid) "Sign-in complete. You may close this tab." else "Invalid request."}</body></html>".toByteArray()) }
-                }
+                val note = if (valid) "Sign-in complete. You may close this tab." else "Invalid request."
+                val reply = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n" +
+                    "<html><script>window.close()</script><body>$note</body></html>"
+                runCatching { socket.getOutputStream().use { it.write(reply.toByteArray()) } }
                 socket.close()
                 if (valid) break
             }
