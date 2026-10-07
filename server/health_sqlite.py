@@ -430,7 +430,8 @@ CREATE TABLE IF NOT EXISTS future_ts (us INTEGER PRIMARY KEY) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS chunks (chunk_id TEXT PRIMARY KEY, doc TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS sync_audit (
   seq INTEGER PRIMARY KEY, ts TEXT, chunk_id TEXT, chunk_start TEXT, chunk_end TEXT,
-  received INTEGER, accepted INTEGER, duplicates INTEGER, complete INTEGER);
+  received INTEGER, accepted INTEGER, duplicates INTEGER, complete INTEGER,
+  updated INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS diagnostics (
   seq INTEGER PRIMARY KEY, event_id TEXT, timestamp TEXT, phase TEXT, message TEXT,
   exception_type TEXT, stack_trace TEXT);

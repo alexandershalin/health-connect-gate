@@ -468,14 +468,15 @@ class HealthApi:
         latest = None
         with s.locked():
             if s.diagnostics.exists():
-                for line in s.diagnostics.read_bytes().split(b"\n"):
-                    try:
-                        event = json.loads(line.decode("utf-8", errors="replace"))
-                    except (ValueError, TypeError):
-                        continue
-                    if isinstance(event, dict):
-                        count += 1
-                        latest = event.get("timestamp")
+                with s.diagnostics.open("rb") as stream:  # line by line: the file can be large
+                    for line in stream:
+                        try:
+                            event = json.loads(line.decode("utf-8", errors="replace"))
+                        except (ValueError, TypeError):
+                            continue
+                        if isinstance(event, dict):
+                            count += 1
+                            latest = event.get("timestamp")
         return {"ok": True, "count": count, "latest_timestamp": latest}
 
 

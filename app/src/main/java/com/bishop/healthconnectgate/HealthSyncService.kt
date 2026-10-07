@@ -1,11 +1,9 @@
 package com.bishop.healthconnectgate
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import androidx.health.connect.client.HealthConnectClient
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +17,6 @@ class HealthSyncService : Service() {
     private lateinit var notificationManager: NotificationManager
     override fun onCreate() {
         super.onCreate(); notificationManager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) notificationManager.createNotificationChannel(NotificationChannel(CHANNEL, "Health synchronization", NotificationManager.IMPORTANCE_LOW))
         startForeground(NOTIFICATION_ID, notification("Preparing"))
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -44,8 +41,8 @@ class HealthSyncService : Service() {
     private fun update(text: String) {
         notificationManager.notify(NOTIFICATION_ID, notification(text))
     }
-    private fun notification(text: String): Notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build() else Notification.Builder(this).setContentTitle(getString(R.string.app_name)).setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build()
+    private fun notification(text: String): Notification = SyncNotification.build(this, text)
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() { scope.coroutineContext.cancel(); super.onDestroy() }
-    companion object { private const val CHANNEL = "health_sync"; private const val NOTIFICATION_ID = 4101 }
+    companion object { private const val NOTIFICATION_ID = 4101 }
 }

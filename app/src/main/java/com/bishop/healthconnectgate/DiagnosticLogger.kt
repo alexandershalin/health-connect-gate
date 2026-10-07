@@ -29,6 +29,11 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         synchronized(lock) {
             runCatching {
                 file.parentFile?.mkdirs()
+                // An unreachable server must not let the outbox grow without limit: keep the newest half.
+                if (file.length() > MAX_FILE_BYTES) {
+                    val lines = file.readLines(Charsets.UTF_8)
+                    file.writeText(lines.drop(lines.size / 2).joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+                }
                 file.appendText(event.toString() + "\n", Charsets.UTF_8)
             }
         }
@@ -103,7 +108,7 @@ internal class DiagnosticLogger(private val context: Context, private val domain
         .take(MAX_FIELD_LENGTH)
 
     companion object {
-        private const val MAX_EVENTS = 50; private const val MAX_ROUNDS = 10; private const val MAX_FIELD_LENGTH = 12000
+        private const val MAX_EVENTS = 50; private const val MAX_ROUNDS = 10; private const val MAX_FIELD_LENGTH = 12000; private const val MAX_FILE_BYTES = 2_000_000L
         // Instances are created all over the app; the file lock and the upload gate must be shared by all of them.
         private val lock = Any()
         private val uploadGate = kotlinx.coroutines.sync.Mutex()
