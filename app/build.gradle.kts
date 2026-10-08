@@ -76,5 +76,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.11.2")
     testImplementation("junit:junit:4.13.2")
     // Android's own org.json is a stub in local unit tests; the real implementation makes JSON code testable on the JVM.
-    testImplementation("org.json:json:20250517")
+    testImplementation("org.json:json:20260814")
 }
